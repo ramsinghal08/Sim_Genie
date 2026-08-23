@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>x2-ros bridge self-test</title>
+<!--
+  Headless self-test for the ROS half of the bridge.
+
+  The Reactor SDK cannot be exercised without an API key and a live session, so
+  everything up to it is tested against a STUB adapter and a fake rosbridge:
+
+    ROS camera topic -> canvas -> captureStream()      (the input X2 would get)
+    a synthetic track -> <video> -> canvas -> ROS      (the output X2 would send)
+
+  That covers every line this repo owns. What it deliberately does not cover is
+  the SDK call itself -- publishTrack/sendCommand are recorded, not performed.
+
+  Run:  python3 tools/panel_server.py --port 8331 --directory .
+        then drive /myworld/ros/selftest.html with Playwright.
+-->
+<body style="font:13px monospace;background:#0d0f12;color:#e6e9ef;padding:12px">
+<pre id="out">starting…</pre>
+<script type="module">
+import { X2RosBridge } from "./bridge.js";
+
+const log = (m) => { document.getElementById("out").textContent += "\n" + m; };
+
+// ---- stub adapter: records what the SDK would have been asked to do -------
+const calls = { publishTrack: [], sendCommand: [] };
+let deliverOutputTrack = null;
+
+const adapter = {
+  publishTrack: async (name, track) => {
+    calls.publishTrack.push({
+      name,
+      kind: track.kind,
+      readyState: track.readyState,
+      label: track.label,
+    });
+  },
+  sendCommand: async (command, data) => {
+    calls.sendCommand.push({ command, data });
+  },
+  onOutputTrack: (fn) => { deliverOutputTrack = fn; },
+};
+
+// ---- a synthetic "model output" track, so the sink has something real ----
+function syntheticTrack(w = 320, h = 200) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  let t = 0;
+  setInterval(() => {
+    t++;
+    g.fillStyle = `rgb(${200}, ${(t * 7) % 256}, 40)`;   // moving, so frames differ
+    g.fillRect(0, 0, w, h);
+  }, 50);
+  return c.captureStream(20).getVideoTracks()[0];
+}
+
+const bridge = new X2RosBridge(adapter, {
+  rosUrl: "ws://localhost:9090",
+  cameraTopic: "/unity/camera/image_raw",     // what fake_rosbridge publishes
+  outputFps: 10,
+  maxWidth: 320,
+});
+bridge.log = log;
+
+// Everything the driver needs to assert on.
+window.T = {
+  bridge, calls, published: [],
+  deliverOutput: async () => {
+    if (!deliverOutputTrack) throw new Error("onOutputTrack was never registered");
+    await deliverOutputTrack(syntheticTrack());
+  },
+};
+
+await bridge.start();
+
+// Record what goes OUT to ROS, after connect so nothing is missed.
+const realSend = bridge.ros.send.bind(bridge.ros);
+bridge.ros.send = (obj) => { window.T.published.push(obj); realSend(obj); };
+
+log("bridge started");
+</script>
+</body>

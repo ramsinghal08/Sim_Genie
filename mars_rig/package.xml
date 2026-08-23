@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mars_rig</name>
+  <version>0.1.0</version>
+  <description>
+    Martian perception stress-test rig: Unity supplies physics and ground
+    truth, Reactor X2 repaints appearance, perception runs on the repaint, and
+    a scorer measures how far it falls. Targets ROS 2 Jazzy.
+  </description>
+  <maintainer email="nimayshah2022@gmail.com">Mars Rover Team, Software Subsystem</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>message_filters</depend>
+  <depend>python3-numpy</depend>
+  <!-- cv_bridge deliberately absent: it resolves image encodings through a
+       compiled module and a runtime cv2 table, which disagree when two
+       OpenCV versions are installed. mars_rig/imgcodec.py does the same job
+       in numpy. See that file's header. -->
+  <depend>python3-opencv</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

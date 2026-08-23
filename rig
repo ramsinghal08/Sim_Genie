@@ -1,0 +1,646 @@
+#!/usr/bin/env bash
+#
+# rig -- install, build and run the Martian perception stress-test rig.
+#
+#   ./rig doctor      what is present, what is missing, what to do about it
+#   ./rig install     everything (see `./rig help install` for the sudo parts)
+#   ./rig test        the test suite -- needs no ROS
+#   ./rig offline     the whole loop with no ROS, no Unity, no credits
+#   ./rig mock        the full ROS graph, mock bridge, no credits
+#   ./rig sweep       the real run against a live X2 session
+#
+# Run `./rig` with no arguments for the full list.
+#
+# DESIGN NOTES
+# ------------
+# Two python environments, on purpose. `.venv` is for the offline path and the
+# tests, so `pip install` never has to touch a ROS install. Anything that runs
+# under `ros2 run` uses SYSTEM python, because that is where rclpy lives and a
+# venv cannot see it -- which is why reactor-sdk goes to --user rather than
+# into .venv.
+#
+# Every step is idempotent. Re-running install after a partial failure picks up
+# where it left off rather than starting again.
+
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO"
+
+ROS_DISTRO_WANTED="jazzy"
+ROS_SETUP="/opt/ros/${ROS_DISTRO_WANTED}/setup.bash"
+VENV="$REPO/.venv"
+THIRD_PARTY="$REPO/third_party"
+PANEL_PORT="${PANEL_PORT:-8000}"
+
+# ---------------------------------------------------------------- output
+
+if [ -t 1 ]; then
+    R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; B=$'\e[36m'; D=$'\e[2m'; Z=$'\e[0m'
+else
+    R=""; G=""; Y=""; B=""; D=""; Z=""
+fi
+
+say()  { printf '%s==>%s %s\n' "$B" "$Z" "$*"; }
+ok()   { printf '  %s+%s %s\n' "$G" "$Z" "$*"; }
+warn() { printf '  %s!%s %s\n' "$Y" "$Z" "$*"; }
+bad()  { printf '  %sx%s %s\n' "$R" "$Z" "$*"; }
+die()  { printf '%serror:%s %s\n' "$R" "$Z" "$*" >&2; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# sudo only where it is genuinely needed, and never silently.
+SUDO=""
+need_sudo() {
+    [ "$(id -u)" -eq 0 ] && return 0
+    have sudo || die "this step installs system packages and needs sudo, which is not installed"
+    SUDO="sudo"
+}
+
+# ---------------------------------------------------------------- detection
+
+has_ros() { [ -f "$ROS_SETUP" ]; }
+
+# shellcheck disable=SC1090
+source_ros() {
+    has_ros || die "ROS 2 ${ROS_DISTRO_WANTED} not found at ${ROS_SETUP}. Run: ./rig install"
+    set +u                      # ROS setup scripts read unset variables
+    source "$ROS_SETUP"
+    [ -f "$REPO/install/setup.bash" ] && source "$REPO/install/setup.bash"
+    set -u
+}
+
+py() {
+    # The offline interpreter: the venv if it exists, else whatever is around.
+    if [ -x "$VENV/bin/python" ]; then echo "$VENV/bin/python"; else echo "python3"; fi
+}
+
+# Run the offline interpreter with ROS stripped out of the environment.
+#
+# Sourcing ROS 2 puts /opt/ros/$ROS_DISTRO/lib/pythonX.Y/site-packages on
+# PYTHONPATH, and a venv does NOT shadow PYTHONPATH -- venv paths are appended
+# after it. So in a ROS-sourced shell the venv's python imports ROS packages,
+# and the venv's pytest discovers ROS's `launch_testing` pytest11 entry point,
+# tries to load it, and dies on `import yaml` because yaml lives in the ROS
+# environment and not in the venv:
+#
+#     File "/opt/ros/jazzy/.../launch/utilities/type_utils.py", line 31
+#     ModuleNotFoundError: No module named 'yaml'
+#
+# Nothing in the offline path needs ROS, so the fix is to not let it in.
+# PYTEST_DISABLE_PLUGIN_AUTOLOAD covers the same class of problem for any other
+# pytest plugin a system install might register -- these tests need none.
+runpy() {
+    env -u PYTHONPATH -u ROS_DISTRO -u AMENT_PREFIX_PATH \
+        PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$(py)" "$@"
+}
+
+ros_pkg_present() {
+    [ -d "/opt/ros/${ROS_DISTRO_WANTED}/share/$1" ]
+}
+
+# Is something already listening on this port?
+#
+# rosbridge_websocket and web_video_server do NOT exit when their port is
+# taken: they log "unable to start server: [Errno 98] Address already in use"
+# and retry every 2s, forever. Two launches deep, that scrolls past and the
+# panel appears to connect (to the OLD instance, from the previous run) while
+# the new graph's nodes are invisible to it. Checking first, and saying so, is
+# the difference between a confusing evening and a one-line fix.
+port_in_use() {
+    (echo >"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------- doctor
+
+cmd_doctor() {
+    say "environment"
+    have python3 && ok "python3 $(python3 -V 2>&1 | cut -d' ' -f2)" || bad "python3 missing"
+    [ -x "$VENV/bin/python" ] && ok ".venv present" || warn ".venv missing            -> ./rig install"
+
+    if [ -x "$VENV/bin/python" ]; then
+        runpy -c "import numpy, cv2" 2>/dev/null \
+            && ok "numpy + opencv in .venv" || warn "numpy/opencv missing     -> ./rig install"
+        runpy -c "import pytest" 2>/dev/null \
+            && ok "pytest in .venv" || warn "pytest missing           -> ./rig install"
+    fi
+
+    say "ROS 2"
+    if has_ros; then
+        ok "ROS 2 ${ROS_DISTRO_WANTED} at ${ROS_SETUP}"
+        if [ -n "${ROS_DISTRO:-}" ]; then
+            ok "sourced in this shell (${ROS_DISTRO}) -- ./rig strips it from offline commands"
+        fi
+        for p in cv_bridge message_filters rosbridge_server web_video_server; do
+            ros_pkg_present "$p" && ok "$p" || warn "$p missing         -> ./rig install"
+        done
+        [ -d "$REPO/install/mars_rig" ] && ok "mars_rig built" || warn "mars_rig not built       -> ./rig build"
+        [ -d "$THIRD_PARTY/ROS-TCP-Endpoint" ] && ok "ROS-TCP-Endpoint cloned" \
+            || warn "ROS-TCP-Endpoint missing -> ./rig install"
+    else
+        warn "ROS 2 ${ROS_DISTRO_WANTED} not installed"
+        printf '    %sThe offline path (test, offline, panel) works without it.%s\n' "$D" "$Z"
+        printf '    %sFor the ROS path: ./rig install%s\n' "$D" "$Z"
+    fi
+
+    say "OpenCV"
+    # Two OpenCVs on one interpreter is a real hazard for ROS python packages:
+    # anything that resolves types through a compiled module and a runtime cv2
+    # table (cv_bridge does) breaks with an error naming neither. mars_rig no
+    # longer uses cv_bridge for exactly this reason, but other packages might.
+    local cvinfo cvver cvpath
+    cvinfo="$(python3 -c 'import cv2; print(cv2.__version__, cv2.__file__)' 2>/dev/null || true)"
+    if [ -z "$cvinfo" ]; then
+        warn "system python cannot import cv2 -> ./rig install"
+    else
+        cvver="${cvinfo%% *}"; cvpath="${cvinfo#* }"
+        case "$cvpath" in
+            /usr/lib/python3/dist-packages/*|/opt/ros/*)
+                ok "cv2 $cvver (system -- the one ROS was built against)" ;;
+            *)
+                warn "cv2 $cvver loaded from $cvpath"
+                printf '    %sThis shadows the system OpenCV for every ROS python node.%s\n' "$D" "$Z"
+                printf '    %sOpenCV 5 renumbered the type constants (CV_8UC3 is 64, was 16),%s\n' "$D" "$Z"
+                printf '    %sso cv_bridge fails with "KeyError: 16". mars_rig avoids cv_bridge,%s\n' "$D" "$Z"
+                printf '    %sbut if another package breaks oddly: pip3 uninstall opencv-python%s\n' "$D" "$Z"
+                ;;
+        esac
+    fi
+
+    say "Reactor"
+    if python3 -c "import reactor_sdk" 2>/dev/null; then
+        ok "reactor-sdk importable by system python ($(python3 -c 'import reactor_sdk; print(reactor_sdk.__version__)' 2>/dev/null))"
+    else
+        warn "reactor-sdk missing      -> ./rig install   (only needed for a LIVE run)"
+    fi
+    if [ -n "${REACTOR_API_KEY:-}" ]; then
+        ok "REACTOR_API_KEY is set"
+    else
+        warn "REACTOR_API_KEY not set  (only needed for a LIVE run)"
+    fi
+
+    say "Unity"
+    printf '    %sUnity is not installed or checked by this script.%s\n' "$D" "$Z"
+    printf '    %sCopy unity/Assets/MarsRig/ into the project -- see unity/README.md%s\n' "$D" "$Z"
+}
+
+# ---------------------------------------------------------------- install
+
+install_python() {
+    say "python environment"
+    have python3 || die "python3 not found"
+    if [ ! -x "$VENV/bin/python" ]; then
+        python3 -m venv "$VENV" || die "could not create $VENV (apt install python3-venv?)"
+        ok "created .venv"
+    fi
+    "$VENV/bin/pip" install -q --upgrade pip >/dev/null 2>&1 || true
+    # websockets is for tools/fake_rosbridge.py, which drives the panel with
+    # no ROS running -- see ./rig panel --demo.
+    "$VENV/bin/pip" install -q numpy "opencv-python-headless" pytest websockets
+    ok "numpy, opencv, pytest, websockets"
+}
+
+install_reactor_sdk() {
+    say "reactor-sdk"
+    if python3 -c "import reactor_sdk" 2>/dev/null; then ok "already importable"; return; fi
+    # --user, and into SYSTEM python: x2_bridge_node runs under `ros2 run`,
+    # which uses system python, so a .venv install would be invisible to it.
+    # --break-system-packages is what PEP 668 needs on Ubuntu 24.04; --user
+    # keeps it in ~/.local rather than in /usr.
+    if pip3 install -q --user --break-system-packages reactor-sdk 2>/dev/null \
+       || pip3 install -q --user reactor-sdk 2>/dev/null; then
+        ok "installed to ~/.local (system python can see it)"
+    else
+        warn "could not install reactor-sdk; mock mode still works without it"
+    fi
+}
+
+install_ros() {
+    say "ROS 2 ${ROS_DISTRO_WANTED}"
+    if has_ros; then ok "already installed"; else
+        . /etc/os-release
+        if [ "${UBUNTU_CODENAME:-}" != "noble" ]; then
+            warn "ROS 2 ${ROS_DISTRO_WANTED} expects Ubuntu 24.04 (noble); this is ${UBUNTU_CODENAME:-unknown}"
+            warn "skipping -- install ROS yourself, then re-run ./rig install"
+            return
+        fi
+        need_sudo
+        $SUDO apt-get update -qq
+        $SUDO apt-get install -y -qq curl gnupg lsb-release software-properties-common
+        $SUDO add-apt-repository -y universe >/dev/null
+        curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+            | $SUDO tee /usr/share/keyrings/ros-archive-keyring.gpg >/dev/null
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu noble main" \
+            | $SUDO tee /etc/apt/sources.list.d/ros2.list >/dev/null
+        $SUDO apt-get update -qq
+        $SUDO apt-get install -y ros-${ROS_DISTRO_WANTED}-ros-base || \
+            die "ROS install failed. If apt reported 403 on packages.ros.org, your network blocks it."
+        ok "ros-base"
+    fi
+
+    need_sudo
+    say "ROS extras"
+    # Split from ros-base: if one of these is unavailable, the others should
+    # still land rather than the whole apt transaction failing.
+    for p in cv-bridge vision-opencv rosbridge-suite web-video-server image-transport-plugins; do
+        if ros_pkg_present "${p//-/_}"; then ok "$p"; continue; fi
+        if $SUDO apt-get install -y -qq "ros-${ROS_DISTRO_WANTED}-${p}" 2>/dev/null; then
+            ok "$p"
+        else
+            warn "ros-${ROS_DISTRO_WANTED}-${p} unavailable -- skipped"
+        fi
+    done
+    $SUDO apt-get install -y -qq python3-colcon-common-extensions python3-opencv python3-numpy 2>/dev/null \
+        && ok "colcon, python3-opencv, python3-numpy" || warn "colcon/opencv install incomplete"
+}
+
+install_tcp_endpoint() {
+    say "ROS-TCP-Endpoint (Unity bridge)"
+    mkdir -p "$THIRD_PARTY"
+    if [ -d "$THIRD_PARTY/ROS-TCP-Endpoint" ]; then ok "already cloned"; return; fi
+    if git clone -q -b main-ros2 --depth 1 \
+        https://github.com/Unity-Technologies/ROS-TCP-Endpoint.git \
+        "$THIRD_PARTY/ROS-TCP-Endpoint" 2>/dev/null; then
+        ok "cloned to third_party/"
+    else
+        warn "clone failed -- Unity cannot reach ROS until this is present"
+    fi
+}
+
+cmd_install() {
+    local offline_only=0 no_ros=0
+    for a in "$@"; do
+        case "$a" in
+            --offline-only) offline_only=1 ;;
+            --no-ros) no_ros=1 ;;
+            *) die "unknown option $a (try: --offline-only, --no-ros)" ;;
+        esac
+    done
+
+    install_python
+    if [ "$offline_only" -eq 1 ]; then
+        say "done -- offline path only"
+        printf '  Try: %s./rig test%s then %s./rig offline%s\n' "$B" "$Z" "$B" "$Z"
+        return
+    fi
+
+    install_reactor_sdk
+    if [ "$no_ros" -eq 0 ]; then install_ros; else warn "skipping ROS (--no-ros)"; fi
+    install_tcp_endpoint
+
+    if has_ros; then cmd_build; fi
+    say "done"
+    cmd_doctor
+}
+
+# ---------------------------------------------------------------- build
+
+cmd_build() {
+    source_ros
+    have colcon || die "colcon not found. Run: ./rig install"
+    say "colcon build"
+    local paths=("$REPO/mars_rig")
+    [ -d "$THIRD_PARTY/ROS-TCP-Endpoint" ] && paths+=("$THIRD_PARTY/ROS-TCP-Endpoint")
+    colcon build --base-paths "${paths[@]}" --symlink-install
+    ok "built -- install/setup.bash is sourced automatically by ./rig"
+}
+
+# ---------------------------------------------------------------- offline
+
+cmd_test() {
+    runpy -c "import numpy, cv2, pytest" 2>/dev/null \
+        || die "test deps missing. Run: ./rig install --offline-only"
+    say "pytest"
+    runpy -m pytest "$REPO/mars_rig/test" -q "$@"
+}
+
+cmd_offline() {
+    runpy -c "import numpy, cv2" 2>/dev/null \
+        || die "numpy/opencv missing. Run: ./rig install --offline-only"
+    say "offline loop -- no ROS, no Unity, no credits"
+    printf '  %sEverything this writes is stamped SIMULATED. It proves the loop, not the numbers.%s\n' "$D" "$Z"
+    # Defaults sized for a rehearsal, not a measurement. Anything passed on the
+    # command line wins, because argparse takes the last occurrence.
+    runpy "$REPO/tools/offline_loop.py" --mode sweep --settle 2 --dwell 4 "$@"
+}
+
+cmd_ceiling() {
+    # With ROS: the real ceiling, straight off Unity. Without: the synthetic one.
+    if has_ros && [ -d "$REPO/install/mars_rig" ]; then
+        source_ros
+        say "ceiling -- perception on the plain Unity render vs Unity's own labels"
+        printf '  %sThis number bounds every other number we report. Read it before sweeping.%s\n' "$D" "$Z"
+        ros2 launch mars_rig ceiling.launch.py "$@"
+    else
+        say "ceiling (synthetic scene -- ROS not built, so this is the stand-in)"
+        runpy "$REPO/tools/offline_loop.py" --ceiling-only "$@"
+    fi
+}
+
+# ---------------------------------------------------------------- ros runs
+
+cmd_mock() {
+    source_ros
+    [ -d "$REPO/install/mars_rig" ] || die "not built. Run: ./rig build"
+    say "full graph, mock bridge -- no API key, no credits"
+    local extra=()
+    servers_already_up extra "$@"
+    ros2 launch mars_rig stress_rig.launch.py mock:=true "${extra[@]}" "$@"
+}
+
+# Skip the servers whose ports are already taken, and say why.
+#
+# Launching a second rosbridge_websocket does not fail loudly -- it retries
+# "Address already in use" forever while the panel talks to the first one. The
+# result looks exactly like a broken graph. Named args win, so an explicit
+# rosbridge:=true still overrides this.
+servers_already_up() {
+    local -n out=$1; shift
+    local rest="$*"
+    if port_in_use 9090 && [[ "$rest" != *rosbridge:=* ]]; then
+        warn "port 9090 is already in use -- not starting a second rosbridge_websocket"
+        printf '    %sThe panel will talk to the one already running.%s\n' "$D" "$Z"
+        out+=("rosbridge:=false")
+    fi
+    if port_in_use 8080 && [[ "$rest" != *web_video_server:=* ]]; then
+        warn "port 8080 is already in use -- not starting a second web_video_server"
+        out+=("web_video_server:=false")
+    fi
+}
+
+cmd_director_test() {
+    source_ros
+    [ -d "$REPO/install/mars_rig" ] || die "not built. Run: ./rig build"
+    say "director against a fake score -- BUILD_SPEC 8, test 4"
+    ros2 launch mars_rig stress_rig.launch.py \
+        fake_score:=true perception:=false settle_sec:=2.0 dwell_sec:=3.0 "$@"
+}
+
+cmd_endpoint() {
+    source_ros
+    [ -d "$THIRD_PARTY/ROS-TCP-Endpoint" ] || die "ROS-TCP-Endpoint missing. Run: ./rig install"
+    say "ros_tcp_endpoint on 127.0.0.1 -- leave this running, then press Play in Unity"
+    ros2 run ros_tcp_endpoint default_server_endpoint --ros-args -p ROS_IP:=127.0.0.1
+}
+
+cmd_sweep() {
+    local assume_yes=0
+    local args=()
+    for a in "$@"; do
+        case "$a" in
+            --yes|-y) assume_yes=1 ;;
+            *) args+=("$a") ;;
+        esac
+    done
+
+    source_ros
+    [ -d "$REPO/install/mars_rig" ] || die "not built. Run: ./rig build"
+    [ -n "${REACTOR_API_KEY:-}" ] || die "REACTOR_API_KEY is not set. A live run needs it."
+    python3 -c "import reactor_sdk" 2>/dev/null \
+        || die "reactor-sdk is not importable by system python. Run: ./rig install"
+
+    if [ "$assume_yes" -eq 0 ]; then
+        printf '\n%sThis spends credits, and it bills per second.%s\n' "$Y" "$Z"
+        printf 'One API key, one live session: everyone else on the team must run mock,\n'
+        printf 'or this fails with ConflictError. 23 conditions at settle 8s / dwell 25s\n'
+        printf 'is about 13 minutes.\n\n'
+        [ -t 0 ] || die "not a terminal, and this needs confirming. Pass --yes if you mean it."
+        read -r -p "Type 'yes' to start the live run: " reply
+        [ "$reply" = "yes" ] || { say "aborted -- no credits spent"; return; }
+    fi
+
+    mkdir -p "$REPO/results"
+    say "live sweep -- keep_backlog:=true (every frame, reproducible)"
+    local extra=()
+    servers_already_up extra "${args[@]+"${args[@]}"}"
+    args=("${extra[@]+"${extra[@]}"}" "${args[@]+"${args[@]}"}")
+
+    # Credits bill per second, so the session must not outlive this script --
+    # including on Ctrl-C, which is how a run actually ends most of the time.
+    # By PID rather than `kill 0`: the process group reaches back to whatever
+    # invoked this, and taking someone's shell down with the run is a rude way
+    # to end a demo.
+    # NOT `local`: the EXIT trap fires after this function has returned, and a
+    # local is gone by then -- under `set -u` cleanup_sweep dies with
+    # "line NNN: launch_pid: unbound variable" instead of closing the session.
+    # A session left open bills per second, so this one is not cosmetic.
+    LAUNCH_PID=""
+    cleanup_sweep() {
+        local launch_pid="${LAUNCH_PID:-}"
+        [ -n "$launch_pid" ] || return 0
+        kill -INT "$launch_pid" 2>/dev/null || true
+        # ros2 launch needs a moment to tear the nodes down; the bridge
+        # disconnects its session in that window.
+        wait "$launch_pid" 2>/dev/null || true
+        # Cleared globally, so the EXIT trap after an INT is a no-op rather
+        # than a second teardown of a pid that is already gone.
+        LAUNCH_PID=""
+        say "session closed"
+    }
+    trap cleanup_sweep INT TERM EXIT
+
+    ros2 launch mars_rig stress_rig.launch.py \
+        mock:=false keep_backlog:=true mode:=sweep \
+        settle_sec:=8.0 dwell_sec:=25.0 "${args[@]+"${args[@]}"}" &
+    LAUNCH_PID=$!
+    wait "$LAUNCH_PID" || true
+}
+
+# ---------------------------------------------------------------- panel
+
+# ---------------------------------------------------------------- topics
+
+# One expected hop: label, topic, and the ROS type it must carry.
+RIG_TOPICS=(
+    "camera (Unity -> bridge)|IMAGE_TOPIC|sensor_msgs/msg/Image"
+    "labels (Unity -> scoring)|LABELS_TOPIC|sensor_msgs/msg/Image"
+    "world model (bridge -> perception)|/world_model/image_raw|sensor_msgs/msg/Image"
+    "mask (perception -> scoring)|/perception/mask|sensor_msgs/msg/Image"
+    "score (scoring -> director, panel)|/score/iou|std_msgs/msg/Float32"
+    "prompt (director, panel -> bridge)|/world_model/prompt|std_msgs/msg/String"
+)
+
+cmd_topics() {
+    local image_topic="${1:-/unity/camera/image_raw}"
+    local labels_topic="${2:-/unity/labels}"
+    source_ros
+
+    say "expected wiring vs what the graph actually publishes"
+    printf '  %s(camera topic: %s -- pass another as ./rig topics <camera> [labels])%s\n' \
+        "$D" "$image_topic" "$Z"
+
+    local listing
+    listing="$(ros2 topic list -t 2>/dev/null || true)"
+    [ -n "$listing" ] || { bad "no topics at all -- is anything running? same ROS_DOMAIN_ID?"; return 1; }
+
+    local missing=0
+    local entry label topic type_name count
+    for entry in "${RIG_TOPICS[@]}"; do
+        label="${entry%%|*}"
+        topic="${entry#*|}"; topic="${topic%%|*}"
+        type_name="${entry##*|}"
+        case "$topic" in
+            IMAGE_TOPIC)  topic="$image_topic" ;;
+            LABELS_TOPIC) topic="$labels_topic" ;;
+        esac
+
+        count="$(ros2 topic info "$topic" 2>/dev/null \
+                 | sed -n 's/^Publisher count: //p')"
+        count="${count:-0}"
+        if [ "$count" -gt 0 ]; then
+            ok "$(printf '%-34s %s' "$topic" "$count publisher(s)")"
+            printf '    %s%s%s\n' "$D" "$label" "$Z"
+        else
+            missing=$((missing + 1))
+            bad "$(printf '%-34s %s' "$topic" "NO PUBLISHER")"
+            printf '    %s%s%s\n' "$D" "$label" "$Z"
+            # The name you want is nearly always one of the same type that IS
+            # published -- which is the entire lesson of the /panther/ evening.
+            # `ros2 topic list` shows every topic ON THE GRAPH, which
+            # includes ones that only have SUBSCRIBERS -- the missing topics
+            # themselves appear there, since this rig subscribes to them. A
+            # suggestion list that offers a topic nobody publishes is worse
+            # than no suggestion: it reads as "try this one" and sends you
+            # to a name that cannot work either.
+            local candidates cand cand_n
+            candidates=""
+            for cand in $(printf '%s\n' "$listing" | grep -F "[$type_name]" \
+                          | sed 's/ \[.*//' | grep -v "^${topic}$"); do
+                cand_n="$(ros2 topic info "$cand" 2>/dev/null \
+                          | sed -n 's/^Publisher count: //p')"
+                [ "${cand_n:-0}" -gt 0 ] && candidates="$candidates $cand"
+            done
+            if [ -n "$candidates" ]; then
+                printf '    %s%s with a PUBLISHER right now -- did you mean one of these?%s\n' \
+                    "$Y" "$type_name" "$Z"
+                printf '      %s\n' $candidates
+            fi
+        fi
+    done
+
+    say "ports"
+    local port name
+    for entry in "9090|rosbridge_websocket (the panel connects here)" \
+                 "8080|web_video_server (MJPEG image panes)"; do
+        port="${entry%%|*}"; name="${entry#*|}"
+        if port_in_use "$port"; then
+            ok "$(printf '%-6s %s' "$port" "in use -- $name")"
+        else
+            warn "$(printf '%-6s %s' "$port" "nothing listening -- $name is not running")"
+        fi
+    done
+
+    if [ "$missing" -gt 0 ]; then
+        printf '\n'
+        warn "$missing expected topic(s) have no publisher."
+        printf '    %sA subscription to an unpublished topic is completely silent:%s\n' "$D" "$Z"
+        printf '    %sno error, no warning, just an empty pane and no score.%s\n' "$D" "$Z"
+        printf '    %sPoint the rig at the real names, e.g.:%s\n' "$D" "$Z"
+        printf '      ./rig mock unity_image_topic:=/your/camera/image_raw\n'
+    fi
+}
+
+cmd_panel() {
+    local demo=0
+    for a in "$@"; do
+        case "$a" in
+            --demo) demo=1 ;;
+            *) die "unknown option $a (try: --demo)" ;;
+        esac
+    done
+
+    local fake_pid=""
+    if [ "$demo" -eq 1 ]; then
+        runpy -c "import websockets" 2>/dev/null \
+            || die "--demo needs websockets. Run: ./rig install --offline-only"
+        say "fake rosbridge on ws://localhost:9090 -- synthetic data, no ROS"
+        runpy "$REPO/tools/fake_rosbridge.py" &
+        fake_pid=$!
+        # By PID: the panel server runs in this same shell, and killing the
+        # process group would take the caller's terminal with it.
+        trap 'kill "$fake_pid" 2>/dev/null || true' INT TERM EXIT
+        sleep 1
+    fi
+
+    # The printed link carries the file's mtime, so clicking it can never hit
+    # a heuristically-cached copy: a changed file is a changed URL.
+    local panel_v
+    panel_v="$(date -r "$REPO/panel/index.html" +%s 2>/dev/null || echo 0)"
+    say "control panel on http://localhost:${PANEL_PORT}/index.html?v=${panel_v}"
+    if [ "$demo" -eq 1 ]; then
+        printf '  %sConnect to ws://localhost:9090 and pick "rosbridge raw Image".%s\n' "$D" "$Z"
+    else
+        printf '  %sIt needs rosbridge on ws://localhost:9090 -- ./rig mock starts one.%s\n' "$D" "$Z"
+        printf '  %sNo ROS? ./rig panel --demo feeds it synthetic data instead.%s\n' "$D" "$Z"
+    fi
+    printf '  %sCtrl-C to stop.%s\n' "$D" "$Z"
+    # Not `python -m http.server`: it answers a conditional request with 304,
+    # so a tab left open across an edit keeps showing the OLD page -- connected
+    # to a live rosbridge, updating from real messages, and still displaying
+    # every symptom you just fixed. See tools/panel_server.py.
+    runpy "$REPO/tools/panel_server.py" \
+        --port "$PANEL_PORT" --directory "$REPO/panel"
+}
+
+# ---------------------------------------------------------------- help
+
+cmd_help() {
+    cat <<'EOF'
+rig -- Martian perception stress-test rig
+
+SETUP
+  ./rig doctor                 what is present, what is missing
+  ./rig install                python deps, reactor-sdk, ROS 2 Jazzy, TCP endpoint, build
+  ./rig install --offline-only just the python deps -- no sudo, no ROS
+  ./rig install --no-ros       everything except the ROS 2 install itself
+  ./rig build                  colcon build
+
+NO ROS, NO UNITY, NO CREDITS
+  ./rig test                   the test suite
+  ./rig offline                the whole loop on a synthetic scene
+  ./rig ceiling                perception vs ground truth, nothing in between
+  ./rig panel                  serve the control panel
+  ./rig panel --demo           panel + synthetic data, no ROS at all
+
+WITH ROS
+  ./rig endpoint               ros_tcp_endpoint, for Unity  (leave running)
+  ./rig topics                 what the rig expects vs what is actually published
+  ./rig topics <camera> [labels]  same, for non-default topic names
+  ./rig mock                   the full graph, mock bridge, no credits
+  ./rig director-test          director against a fake score
+  ./rig ceiling                the REAL ceiling, off Unity   (run this first)
+  ./rig sweep                  the live run -- spends credits, asks first
+  ./rig sweep --yes            same, without the confirmation prompt
+
+Extra arguments pass straight through, so:
+  ./rig offline --mode adaptive --escalate-above 0.55
+  ./rig mock director:=false
+  ./rig test -k iou
+
+FIRST TIME
+  ./rig install && ./rig test && ./rig offline
+
+BEFORE ANY LIVE RUN
+  Unity must be publishing, and ./rig ceiling must give a number you believe.
+  Every result is measured below that ceiling.
+EOF
+}
+
+# ---------------------------------------------------------------- dispatch
+
+case "${1:-help}" in
+    doctor)                     shift; cmd_doctor "$@" ;;
+    install)                    shift; cmd_install "$@" ;;
+    build)                      shift; cmd_build "$@" ;;
+    test)                       shift; cmd_test "$@" ;;
+    offline)                    shift; cmd_offline "$@" ;;
+    ceiling)                    shift; cmd_ceiling "$@" ;;
+    mock)                       shift; cmd_mock "$@" ;;
+    director-test|director_test) shift; cmd_director_test "$@" ;;
+    endpoint)                   shift; cmd_endpoint "$@" ;;
+    topics)                     shift; cmd_topics "$@" ;;
+    sweep)                      shift; cmd_sweep "$@" ;;
+    panel)                      shift; cmd_panel "$@" ;;
+    help|-h|--help)             cmd_help ;;
+    *) die "unknown command '$1'. Try: ./rig help" ;;
+esac

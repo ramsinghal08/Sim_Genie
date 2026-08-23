@@ -1,0 +1,507 @@
+{
+  "_readme": {
+    "purpose": "Perception stress-test conditions for Unity->Mars restyling with Reactor X2.",
+    "model": "reactor/x2",
+    "built_from": "https://docs.reactor.inc/model-api-reference/x2/prompt-guide",
+    "prompt_pattern": "[optional capability prefix] + [exact target] + [ONE visible change] + [physical relationship] + [preservation boundary]",
+    "rules": [
+      "X2 is a conditional video model. The SOURCE supplies scene, composition and motion. The PROMPT supplies only the transformation. Never redescribe what the model can already see.",
+      "ONE dominant transformation per prompt. Compound edits compete and weaken each other.",
+      "Every prompt MUST end with the preservation boundary. This is what keeps Unity's geometry intact and therefore what keeps IoU scoring valid.",
+      "NEVER name a protected object by category (rover, rock, marker). Naming it teaches the model to look for it and invent more. Protect by COUNT and STILLNESS instead. This was learned the hard way: naming the rover turned every ArUco marker into a robot.",
+      "NEVER name an object that does not exist in the Unity source. Adding a rock invalidates every score downstream. Prompts describe light, atmosphere, surface material and optics only.",
+      "Prompt changes land at generation-chunk boundaries. Expect a short settling delay.",
+      "Always send the COMPLETE replacement instruction. Never send relative follow-ups like 'make it dustier'.",
+      "The Chinese prefix is prompt text, not an API mode. Keep it verbatim on its own line.",
+      "Use the zh variant for maximum consistency; en is provided for readability and for the writeup."
+    ],
+    "preservation_boundary": {
+      "en": "Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。"
+    },
+    "capability_prefixes": {
+      "style_transfer": "视频风格变为参考图指定的风格",
+      "free_prompting": null
+    },
+    "method": [
+      "Fix seed, trajectory and re-anchor cadence. Change ONE prompt at a time.",
+      "Always run B00 first as the control, and score the plain Unity render as the ceiling.",
+      "Difficulty 0-5 is the escalation ladder for prompt_director.py.",
+      "Record IoU per prompt id. The table is the deliverable."
+    ]
+  },
+  "families": {
+    "B": "Baseline Mars conversion",
+    "L": "Illumination and sun angle",
+    "A": "Atmosphere, dust and visibility",
+    "E": "Exposure and camera optics",
+    "S": "Surface material and texture",
+    "N": "Sensor degradation",
+    "T": "Terrain colour and mineralogy",
+    "X": "Compound extreme conditions"
+  },
+  "prompts": [
+    {
+      "id": "B00",
+      "family": "B",
+      "difficulty": 0,
+      "name": "mars_baseline",
+      "en": "The terrain surface becomes rust-red oxidised Martian regolith and the sky becomes pale butterscotch. The lighting stays even and overhead. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面材质变为锈红色氧化火星风化层，天空变为淡黄褐色。光照保持均匀顶光。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Control condition. Establishes the ceiling IoU under restyling with no adverse condition."
+    },
+    {
+      "id": "B01",
+      "family": "B",
+      "difficulty": 0,
+      "name": "mars_ref_style",
+      "prefix": "视频风格变为参考图指定的风格",
+      "en": "The whole scene adopts the Martian surface appearance of the reference image. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面整体采用参考图的火星地表风格。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Reference-guided variant of B00. Use a real Perseverance frame as reference. Compare IoU against B00 to decide whether reference or free prompting preserves structure better.",
+      "needs_reference_image": true
+    },
+    {
+      "id": "B02",
+      "family": "B",
+      "difficulty": 0,
+      "name": "mars_sol_noon",
+      "en": "The surface becomes fine rust-red Martian dust under high midday sun with short hard shadows. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面变为细密的锈红色火星尘土，正午高角度阳光，阴影短而硬。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Easiest lighting case. Should score at or near the ceiling."
+    },
+    {
+      "id": "L10",
+      "family": "L",
+      "difficulty": 1,
+      "name": "low_sun_raking",
+      "en": "The sunlight drops to a low grazing angle from the left and casts long raking shadows across the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "阳光降至左侧低掠角，在地表投下长而斜的阴影。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Long shadows are commonly misclassified as obstacles. Expect false positives in traversability."
+    },
+    {
+      "id": "L11",
+      "family": "L",
+      "difficulty": 1,
+      "name": "low_sun_right",
+      "en": "The sunlight drops to a low grazing angle from the right and casts long raking shadows across the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "阳光降至右侧低掠角，在地表投下长而斜的阴影。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Mirror of L10. Asymmetric results would indicate a directional bias in the perception model."
+    },
+    {
+      "id": "L12",
+      "family": "L",
+      "difficulty": 2,
+      "name": "sun_in_frame",
+      "en": "The sun sits just above the horizon directly ahead and floods the centre of the frame with warm light. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "太阳位于正前方地平线上方，暖光充满画面中央。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Direct sun in frame destroys mid-field contrast. Expect a hole in the segmentation mask at frame centre."
+    },
+    {
+      "id": "L13",
+      "family": "L",
+      "difficulty": 2,
+      "name": "terminator_dusk",
+      "en": "The scene falls into Martian dusk with the sun below the horizon and only dim blue-grey afterglow remaining. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "场景进入火星黄昏，太阳落至地平线以下，只余暗淡的蓝灰色余晖。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Global luminance collapse. Tests whether the model degrades gracefully or fails outright."
+    },
+    {
+      "id": "L14",
+      "family": "L",
+      "difficulty": 3,
+      "name": "deep_shadow_region",
+      "en": "The left half of the terrain falls into deep unlit shadow while the right half stays sunlit. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地形左半部分陷入无光深影，右半部分保持阳光照射。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Split-field dynamic range. Score the two halves separately for a strong figure in the writeup."
+    },
+    {
+      "id": "L15",
+      "family": "L",
+      "difficulty": 2,
+      "name": "flat_overcast",
+      "en": "The lighting becomes completely flat and directionless with no visible shadows anywhere on the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "光照变为完全平坦无方向，地表任何位置都没有可见阴影。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Shadow removal eliminates the main monocular depth cue. Expect depth RMSE to rise sharply even if IoU holds."
+    },
+    {
+      "id": "A20",
+      "family": "A",
+      "difficulty": 1,
+      "name": "thin_haze",
+      "en": "A thin veil of suspended dust softens the air and slightly reduces contrast toward the horizon. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "空中悬浮薄薄一层尘埃，空气变柔，地平线方向对比度略微下降。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Mild atmospheric degradation. First rung on the visibility ladder."
+    },
+    {
+      "id": "A21",
+      "family": "A",
+      "difficulty": 2,
+      "name": "moderate_dust",
+      "en": "Suspended ochre dust thickens through the air and washes out detail beyond the middle distance. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "空气中悬浮的赭色尘埃变浓，中景以外的细节被冲淡。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Range-dependent degradation. Score by distance band if depth is available."
+    },
+    {
+      "id": "A22",
+      "family": "A",
+      "difficulty": 3,
+      "name": "dust_storm",
+      "en": "A heavy dust storm fills the air, visibility collapses to the near field, and the light becomes uniform and shadowless ochre. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "沙尘暴充满空气，能见度骤降至近处，光线变为均匀无影的赭黄色。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "The headline failure condition. Expect the largest single IoU drop of the whole set."
+    },
+    {
+      "id": "A23",
+      "family": "A",
+      "difficulty": 4,
+      "name": "whiteout",
+      "en": "Dense airborne dust reduces the scene to a near-featureless pale ochre whiteout with only the closest ground visible. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "浓密的空中尘埃使画面接近无特征的淡赭色白视，只有最近的地面可见。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Near-total information loss. Establishes the floor. A model scoring above chance here is suspicious."
+    },
+    {
+      "id": "A24",
+      "family": "A",
+      "difficulty": 2,
+      "name": "ground_dust_streams",
+      "en": "Thin ribbons of wind-blown dust stream low across the surface from left to right. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "细长的风吹尘带贴着地表从左向右流动。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Moving occluders. Tests temporal stability of segmentation rather than single-frame quality."
+    },
+    {
+      "id": "A25",
+      "family": "A",
+      "difficulty": 3,
+      "name": "dust_devil_pass",
+      "en": "A column of swirling dust moves across the middle distance and locally obscures the ground behind it. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "一道旋转的尘柱从中景横向移动，局部遮挡其后的地面。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Transient localised occlusion. Watch for the mask failing to recover after the occluder passes."
+    },
+    {
+      "id": "A26",
+      "family": "A",
+      "difficulty": 2,
+      "name": "morning_ground_fog",
+      "en": "A shallow layer of pale mist clings to the ground and softens the base of everything on the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "一层浅浅的淡雾贴附地面，柔化地表所有物体的底部。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Obscures the ground-contact line, which is the main cue for object distance in monocular views."
+    },
+    {
+      "id": "E30",
+      "family": "E",
+      "difficulty": 2,
+      "name": "blown_highlights",
+      "en": "The image becomes strongly overexposed with blown highlights across the sunlit ground and lost detail in the bright areas. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面严重过曝，阳光照射的地面高光溢出，明亮区域细节丢失。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Simulates auto-exposure failure. A real and common rover camera fault."
+    },
+    {
+      "id": "E31",
+      "family": "E",
+      "difficulty": 2,
+      "name": "underexposed",
+      "en": "The image becomes strongly underexposed with crushed blacks and detail lost in every shadowed area. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面严重欠曝，暗部死黑，所有阴影区域细节丢失。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Opposite exposure failure. Pair with E30 to show the model's usable dynamic range."
+    },
+    {
+      "id": "E32",
+      "family": "E",
+      "difficulty": 3,
+      "name": "veiling_glare",
+      "en": "Strong veiling glare and lens flare spread across the frame from a bright light source ahead. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "前方强光源在画面上产生强烈的眩光和镜头光晕。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Non-uniform contrast loss. Harder than uniform haze because the degradation is spatially structured."
+    },
+    {
+      "id": "E33",
+      "family": "E",
+      "difficulty": 3,
+      "name": "dusty_lens",
+      "en": "A film of fine dust coats the camera lens and scatters light into soft blooms across the frame. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "细尘覆盖镜头表面，光线散射形成柔和的光晕。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "The single most realistic Mars camera fault. Dust accumulation on optics is unavoidable and progressive."
+    },
+    {
+      "id": "E34",
+      "family": "E",
+      "difficulty": 4,
+      "name": "heavy_lens_dust",
+      "en": "Thick dust and streaks obscure large parts of the camera lens and permanently blur those regions of the frame. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "厚重的尘土和污痕遮挡镜头大部分区域，画面对应位置持续模糊。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Static spatial occlusion. Unlike dust in air, this does not move with the scene."
+    },
+    {
+      "id": "E35",
+      "family": "E",
+      "difficulty": 2,
+      "name": "loss_of_focus",
+      "en": "The camera loses focus and the entire frame becomes softly defocused. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "相机失焦，整个画面变得柔和模糊。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Removes high-frequency texture while preserving structure. Isolates how much the model depends on fine detail."
+    },
+    {
+      "id": "S40",
+      "family": "S",
+      "difficulty": 1,
+      "name": "coarse_regolith",
+      "en": "The ground surface becomes coarse granular Martian regolith with pronounced grain texture. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面变为粗颗粒火星风化层，颗粒质感明显。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Texture-rich baseline. Should be the easiest surface for traversability."
+    },
+    {
+      "id": "S41",
+      "family": "S",
+      "difficulty": 3,
+      "name": "loose_fine_sand",
+      "en": "The ground surface becomes soft loose wind-blown sand with a smooth matte finish and very little local texture. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面变为松软的风积细沙，表面光滑无光，局部纹理极少。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "The condition that stranded Spirit. Texture loss makes drivable and non-drivable regions look identical."
+    },
+    {
+      "id": "S42",
+      "family": "S",
+      "difficulty": 2,
+      "name": "ripple_field",
+      "en": "The ground surface becomes a field of fine parallel wind ripples running across the terrain. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面变为一片细密的平行风成波纹，横贯地形。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Periodic high-contrast texture. May produce false obstacle detections from ripple crests."
+    },
+    {
+      "id": "S43",
+      "family": "S",
+      "difficulty": 2,
+      "name": "cracked_hardpan",
+      "en": "The ground surface becomes dry cracked hardpan with a network of polygonal fractures. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地面变为干裂的硬质地表，布满多边形裂纹网络。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Strong linear edges on drivable ground. Classic false-positive generator for edge-based methods."
+    },
+    {
+      "id": "S44",
+      "family": "S",
+      "difficulty": 3,
+      "name": "dust_over_bedrock",
+      "en": "A thin uniform dust coating settles over the whole surface and mutes the distinction between hard and loose ground. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "一层均匀薄尘覆盖整个地表，弱化坚硬地面与松散地面的区别。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Removes the albedo cue that separates terrain classes. Directly attacks material-based classification."
+    },
+    {
+      "id": "S45",
+      "family": "S",
+      "difficulty": 2,
+      "name": "frost_patches",
+      "en": "A thin pale frost coating appears on the shadowed parts of the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地表阴影区域出现一层淡白色薄霜。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Physically real at high latitude. Introduces a high-albedo class the model has never seen."
+    },
+    {
+      "id": "S46",
+      "family": "S",
+      "difficulty": 3,
+      "name": "wet_dark_streaks",
+      "en": "Dark seasonal streaks appear on the sloped parts of the surface. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "坡面出现深色的季节性条纹。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Dark low-texture regions on slopes read as holes or shadows. Recurring slope lineae analogue."
+    },
+    {
+      "id": "N50",
+      "family": "N",
+      "difficulty": 2,
+      "name": "sensor_noise",
+      "en": "Visible sensor noise and grain appear throughout the image, strongest in the darker areas. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面出现明显的传感器噪点和颗粒，暗部最为严重。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "High-ISO analogue. Tests robustness to per-pixel corruption rather than structural change."
+    },
+    {
+      "id": "N51",
+      "family": "N",
+      "difficulty": 3,
+      "name": "compression_artifacts",
+      "en": "Heavy compression artifacts and blocking appear across the image, coarsest in the smooth areas. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面出现严重的压缩伪影和块状失真，平坦区域最为明显。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Directly relevant: deep-space downlink is bandwidth-limited and imagery is heavily compressed."
+    },
+    {
+      "id": "N52",
+      "family": "N",
+      "difficulty": 2,
+      "name": "monochrome",
+      "en": "The image becomes monochrome with all colour removed and only luminance remaining. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面变为单色，去除所有色彩，仅保留亮度信息。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Many rover navcams are monochrome. Reveals how much the model leans on colour rather than structure."
+    },
+    {
+      "id": "N53",
+      "family": "N",
+      "difficulty": 3,
+      "name": "banding_readout",
+      "en": "Horizontal readout banding appears across the frame with alternating brighter and darker rows. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面出现水平读出条带，明暗行交替。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Structured sensor fault. Introduces strong horizontal edges that mimic terrain boundaries."
+    },
+    {
+      "id": "N54",
+      "family": "N",
+      "difficulty": 3,
+      "name": "motion_smear",
+      "en": "Directional motion smear appears across the whole frame as though the exposure were too long for the movement. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "整个画面出现方向性运动拖影，如同曝光时间过长。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Rovers image while moving on rough ground. Realistic and rarely tested."
+    },
+    {
+      "id": "N55",
+      "family": "N",
+      "difficulty": 4,
+      "name": "dead_pixel_clusters",
+      "en": "Clusters of dead and stuck pixels appear scattered across the frame as small fixed bright and dark points. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面上散布着成簇的坏点和亮点，表现为固定的小亮点和暗点。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Radiation damage analogue. Cumulative sensor degradation over a long mission."
+    },
+    {
+      "id": "T60",
+      "family": "T",
+      "difficulty": 1,
+      "name": "iron_oxide_red",
+      "en": "The surface takes on a deep iron-oxide red colouration with strong red-brown saturation. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地表呈现深铁锈红色，红棕色饱和度很高。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Canonical Mars colour. Baseline for the colour family."
+    },
+    {
+      "id": "T61",
+      "family": "T",
+      "difficulty": 2,
+      "name": "grey_basalt",
+      "en": "The surface takes on a dark grey basaltic colouration with low overall saturation. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地表呈现深灰色玄武岩色调，整体饱和度低。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Real Martian basalt is grey, not red. Tests whether the model has overfitted to red terrain."
+    },
+    {
+      "id": "T62",
+      "family": "T",
+      "difficulty": 2,
+      "name": "pale_sulfate",
+      "en": "The surface takes on a pale yellowish-white sulfate mineral colouration with high brightness. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地表呈现淡黄白色硫酸盐矿物色调，亮度较高。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "High-albedo terrain. Pairs with T61 to bracket the albedo range."
+    },
+    {
+      "id": "T63",
+      "family": "T",
+      "difficulty": 3,
+      "name": "mixed_mineralogy",
+      "en": "The surface becomes a patchwork of contrasting light and dark mineral regions with sharp boundaries between them. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "地表变为明暗矿物区域交错的拼块，区域之间边界清晰。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Albedo boundaries that are not geometry boundaries. The purest test of whether the model confuses colour edges with obstacles."
+    },
+    {
+      "id": "T64",
+      "family": "T",
+      "difficulty": 3,
+      "name": "low_albedo_flat",
+      "en": "The whole surface becomes uniformly dark with very low reflectance and minimal tonal variation. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "整个地表变为均匀的深色，反射率极低，色调变化极小。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Contrast starvation without atmospheric obscuration. Isolates the contrast variable from the visibility variable."
+    },
+    {
+      "id": "X70",
+      "family": "X",
+      "difficulty": 4,
+      "name": "dust_storm_low_sun",
+      "en": "A heavy dust storm fills the air while the sun sits low on the horizon, producing dim directionless ochre light and near-zero contrast. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "沙尘暴充满空气，同时太阳位于地平线附近，形成昏暗无方向的赭色光线，对比度接近于零。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Compound of A22 and L13. Checks whether failures are additive or catastrophic."
+    },
+    {
+      "id": "X71",
+      "family": "X",
+      "difficulty": 5,
+      "name": "sand_haze_dusty_lens",
+      "en": "Loose smooth sand covers the ground, suspended dust fills the air, and a film of dust on the lens scatters the remaining light. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "松散光滑的沙覆盖地面，空气中充满悬浮尘埃，镜头上的尘膜散射着残余的光线。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Worst realistic case: no texture, no visibility, degraded optics. Expect near-floor IoU."
+    },
+    {
+      "id": "X72",
+      "family": "X",
+      "difficulty": 4,
+      "name": "glare_and_shadow",
+      "en": "The sun sits just above the horizon ahead casting strong glare while the near foreground falls into deep shadow. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "太阳位于前方地平线上方形成强烈眩光，同时近处前景陷入深影。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Maximum dynamic range within a single frame. Both extremes fail simultaneously."
+    },
+    {
+      "id": "X73",
+      "family": "X",
+      "difficulty": 5,
+      "name": "mono_compressed_dusty",
+      "en": "The image becomes monochrome with heavy compression blocking while suspended dust reduces visibility in the middle distance. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "画面变为单色并出现严重压缩块状失真，同时悬浮尘埃降低中景能见度。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Realistic worst case for a downlinked navcam frame during a dust season."
+    },
+    {
+      "id": "X74",
+      "family": "X",
+      "difficulty": 5,
+      "name": "everything",
+      "en": "Loose featureless sand covers the ground under dim dusk light, heavy dust fills the air, and the image carries strong sensor noise. Only the ground and sky material and colour change. All non-ground objects are completely motionless and generate no self-motion. Preserve the shape, structure, count and position of every object, the composition, the horizon line, and the camera motion.",
+      "zh": "松散无特征的沙在昏暗的黄昏光下覆盖地面，浓密尘埃充满空气，画面带有强烈的传感器噪点。只改变地面和天空的材质与颜色。画面中所有非地面物体完全静止，不产生任何自身运动。保留所有物体的形状、结构、数量和位置，保留画面构图、地平线和镜头运动。",
+      "hypothesis": "Deliberate floor-finder. Include one entry where the system is expected to fail completely; a rig that never fails is not measuring anything."
+    }
+  ],
+  "escalation_ladder": {
+    "_comment": "prompt_director.py walks this list as IoU stays high. Ordered easy -> hard.",
+    "order": [
+      "B00",
+      "S40",
+      "L10",
+      "A20",
+      "N52",
+      "A21",
+      "L12",
+      "E30",
+      "S43",
+      "T61",
+      "E33",
+      "S41",
+      "T63",
+      "A22",
+      "L14",
+      "E32",
+      "N51",
+      "X70",
+      "A23",
+      "X72",
+      "X71",
+      "X73",
+      "X74"
+    ]
+  },
+  "banned_words": {
+    "_comment": "Reject any generated or hand-written prompt containing these. They add geometry Unity's label images do not know about, which silently invalidates every IoU number.",
+    "words": [
+      "antenna",
+      "boulder",
+      "building",
+      "cone",
+      "crater",
+      "debris",
+      "dune",
+      "marker",
+      "mountain",
+      "person",
+      "rock",
+      "rover",
+      "structure",
+      "tracks",
+      "vehicle",
+      "人物",
+      "岩石",
+      "建筑",
+      "沙丘",
+      "车辆",
+      "锥",
+      "陨石坑"
+    ]
+  }
+}
