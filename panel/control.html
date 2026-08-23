@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sim Genie · Control Panel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e8703a'/%3E%3Ccircle cx='11' cy='12' r='3' fill='%23b4552a'/%3E%3Ccircle cx='21' cy='20' r='4' fill='%23b4552a'/%3E%3C/svg%3E">
+<!--
+  Control panel. Single file, plain JS, no framework, no CDN -- it has to open
+  from a laptop with no network at 18:00 on demo night.
+
+  Talks to rosbridge_websocket directly over its JSON protocol:
+      ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+
+  IMAGE TRANSPORT -- BUILD_SPEC 9.5 is still open, so BOTH are here and the
+  choice is a radio button rather than a decision baked into the file:
+
+    web_video_server  an <img> pointed at an MJPEG stream. Lower latency, no
+                      rosbridge bandwidth, needs the extra node running:
+                          ros2 run web_video_server web_video_server
+    rosbridge raw     subscribe to the Image topic and paint the pixels into a
+                      <canvas>. Nothing else to install, but every frame
+                      crosses the websocket as JSON.
+
+  BOTH READ RAW sensor_msgs/Image. Nothing in this graph publishes a
+  `<topic>/compressed` companion, and asking for one is the quietest failure in
+  the rig: web_video_server stays happily subscribed to a topic that does not
+  exist, rosbridge reports no error, and the pane simply never draws. If a
+  compressed transport is ever added, turn it on in BOTH places -- the node
+  that publishes it and applyTransport() below -- never in only one.
+
+  Pick one, tell the team, and delete the other before the demo if you like.
+
+  NOTE ON THIS FILE'S LAYOUT: this used to be panel/index.html. It moved to
+  control.html so panel/index.html could become a proper landing page (see
+  panel/index.html -- "Sim Genie"). Nothing about the wiring below changed in
+  that move: same topics, same connect/subscribe logic, same image decode,
+  same diagnosis. The scoring card (/score/iou, /score/detail) was removed
+  because scoring is not wired up yet in this deployment -- put it back by
+  reintroducing the card markup and the onScore/onDetail handlers this file
+  used to have (see git history) once it is.
+-->
+<style>
+  :root {
+    --bg:#0a0c0f; --bg-grad: radial-gradient(1200px 600px at 85% -10%, rgba(232,112,58,.10), transparent 60%);
+    --panel:#12161d; --panel-2:#161b23; --line:#232a35; --line-soft:#1a2029;
+    --ink:#e9ecf2; --dim:#8b95a5; --dim-2:#5f6b7d;
+    --accent:#e8703a; --accent-soft:#e8703a22;
+    --good:#4ec27f; --bad:#e05252; --warn:#e0b252;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body {
+    margin:0; background:var(--bg) var(--bg-grad); background-attachment:fixed;
+    color:var(--ink); font:14px/1.5 var(--mono);
+  }
+  /* Above mobile width, the whole panel fits one screen -- header plus a
+     fixed-height main -- so a demo never scrolls to see live video. Below it,
+     panes stack and the page scrolls normally; forcing a no-scroll layout at
+     phone width would just crush everything unreadably small instead. */
+  @media (min-width: 901px) {
+    body { display:flex; flex-direction:column; overflow:hidden; }
+  }
+  a { color:var(--accent); }
+
+  header {
+    flex:0 0 auto;
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    padding:8px 16px; background:linear-gradient(180deg, var(--panel-2), var(--panel));
+    border-bottom:1px solid var(--line);
+    box-shadow: 0 4px 14px rgba(0,0,0,.2);
+  }
+  .brand { display:flex; align-items:center; gap:8px; margin-right:6px; text-decoration:none; }
+  .brand .mark {
+    width:22px; height:22px; border-radius:50%;
+    background:radial-gradient(circle at 32% 30%, #ffb27a, var(--accent) 60%, #a3491f 100%);
+    box-shadow: 0 0 12px var(--accent-soft);
+    flex-shrink:0;
+  }
+  .brand span { font-size:13px; font-weight:700; letter-spacing:.04em; color:var(--ink); }
+  h1 { font-size:12px; margin:0 8px 0 0; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  .divider { width:1px; align-self:stretch; background:var(--line); margin:0 2px; }
+
+  input, select, button, textarea {
+    font:13px var(--mono); background:#0d1116; color:var(--ink);
+    border:1px solid var(--line); border-radius:6px; padding:7px 10px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#171207; font-weight:700; }
+  button.primary:hover { filter:brightness(1.08); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--bad); display:inline-block; box-shadow:0 0 8px rgba(224,82,82,.6); }
+  .dot.on { background:var(--good); box-shadow:0 0 8px rgba(78,194,127,.7); }
+
+  main {
+    display:grid; grid-template-columns: 1fr 380px; gap:12px; padding:12px;
+    max-width:1900px; margin:0 auto; width:100%;
+  }
+  @media (min-width: 901px) { main { flex:1 1 auto; min-height:0; overflow:hidden; } }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  main > div:first-child { min-height:0; min-width:0; }
+
+  /* 1. Unity  2. X2 repaint  -- together, up top.
+     3. segmentation  +  the condition/prompt card -- together, underneath.
+     One 2x2 grid so all four fit the same fixed-height column without
+     forcing a page scroll. */
+  .panes {
+    display:grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr);
+    gap:12px; height:100%;
+  }
+  @media (max-width: 760px) { .panes { grid-template-columns: 1fr; grid-template-rows: none; height:auto; } }
+  .pane {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    overflow:hidden; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .pane h2 {
+    font-size:11px; margin:0; padding:7px 12px; color:var(--dim);
+    letter-spacing:.08em; text-transform:uppercase; font-weight:600;
+    border-bottom:1px solid var(--line); display:flex; justify-content:space-between;
+    background:var(--panel-2); flex:0 0 auto;
+  }
+  .pane .frame { flex:1 1 auto; min-height:0; background:#050708; display:grid; place-items:center; }
+  @media (max-width: 760px) { .pane .frame { aspect-ratio:4/3; } }
+  .pane img, .pane canvas { width:100%; height:100%; object-fit:contain; display:block; }
+  .pane .frame .none { color:var(--dim); font-size:11px; text-align:center; padding:0 10px; line-height:1.6; word-break:break-all; white-space:pre-wrap; }
+
+  /* Unity dock -- a reserved, purely visual slot in the sidebar. Nothing here
+     is wired to ROS; it exists so the Unity Play-mode window has an obvious,
+     blank place to be dragged over while the rig runs. No label inside it on
+     purpose -- it gets covered the moment a window is parked on it, so
+     anything written here would only ever be seen empty. `flex:1` lets it
+     soak up whatever vertical space the director/bridge cards below it don't
+     need, so the sidebar's height is never wasted. */
+  .unity-dock {
+    flex:1; min-height:260px; border:1.5px dashed var(--line); border-radius:var(--radius);
+    background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 12px, transparent 12px 24px), var(--panel);
+  }
+
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:12px 14px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  }
+  /* The condition card sits as the 4th tile in the 2x2 grid (next to
+     segmentation) -- it needs to fit that cell's height exactly rather than
+     dictate its own, so the textarea flexes instead of the card overflowing. */
+  .panes .card { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .panes .card textarea { flex:1 1 auto; min-height:0; height:auto; }
+  .panes .card .row:last-child { flex:0 0 auto; }
+  @media (max-width: 760px) { .panes .card { height:auto; } .panes .card textarea { height:96px; } }
+  .card h3 {
+    font-size:11px; margin:0 0 12px; color:var(--dim); letter-spacing:.08em;
+    text-transform:uppercase; font-weight:600; display:flex; align-items:center; gap:8px;
+  }
+  .card h3::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--accent); }
+
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  td { padding:5px 0; border-bottom:1px solid var(--line-soft); }
+  tr:last-child td { border-bottom:none; }
+  td:first-child { color:var(--dim); }
+  td:last-child { text-align:right; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  textarea { width:100%; height:96px; resize:vertical; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > * { min-width:0; }
+  .grow { flex:1; }
+  .hint { color:var(--dim-2); font-size:11px; margin-top:6px; }
+  .bad-text { color:var(--bad); }
+
+  main > aside { display:flex; flex-direction:column; gap:12px; min-height:0; }
+  @media (min-width: 901px) { main > aside { height:100%; } }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="brand" href="index.html" title="Back to Sim Genie">
+    <span class="mark"></span><span>Sim Genie</span>
+  </a>
+  <div class="divider"></div>
+  <h1>Control Panel</h1>
+  <span class="dot" id="dot"></span>
+  <input id="url" value="ws://localhost:9090" size="22" title="rosbridge websocket">
+  <button id="connect" class="primary">connect</button>
+  <label class="row" style="gap:6px">
+    <span style="color:var(--dim)">images</span>
+    <select id="transport">
+      <option value="wvs">web_video_server (MJPEG)</option>
+      <option value="raw">rosbridge raw Image</option>
+    </select>
+  </label>
+  <input id="wvs" value="http://localhost:8080" size="20" title="web_video_server base URL">
+  <input id="unityTopic" value="/unity/camera/image_raw" size="24"
+         title="Unity's raw camera topic -- pane 1 only. Panes 2/3 are rig-internal and never change.">
+  <span id="status" style="color:var(--dim)">idle</span>
+  <span id="stamp" style="color:var(--dim);font-size:11px;margin-left:auto"></span>
+</header>
+
+<main>
+  <div>
+    <div class="panes">
+      <div class="pane">
+        <h2><span>1 · Unity render</span><span id="hz0" class="dim"></span></h2>
+        <div class="frame" data-slot="0"><span class="none">not connected</span></div>
+      </div>
+      <div class="pane">
+        <h2><span>2 · X2 repaint</span><span id="hz1" class="dim"></span></h2>
+        <div class="frame" data-slot="1"><span class="none">not connected</span></div>
+      </div>
+      <div class="pane">
+        <h2><span>3 · segmentation</span><span id="hz2" class="dim"></span></h2>
+        <div class="frame" data-slot="2"><span class="none">not connected</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Condition — published verbatim to /world_model/prompt</h3>
+        <div class="row" style="margin-bottom:8px">
+          <select id="preset" class="grow"><option value="">— load a catalog to pick a condition —</option></select>
+          <input type="file" id="catalog" accept=".json" style="max-width:180px">
+        </div>
+        <textarea id="prompt" placeholder="地面材质变为... — or paste any condition. Sent exactly as typed; nothing downstream edits it."></textarea>
+        <div class="row" style="margin-top:8px">
+          <button id="send" class="primary">send condition</button>
+          <span class="hint grow" id="promptHint">X2 applies this at the next block boundary — expect a few seconds before it takes visible effect.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="unity-dock"></div>
+
+    <div class="card">
+      <h3>Director · /director/status</h3>
+      <table id="director"><tr><td colspan="2" style="color:var(--dim)">not running</td></tr></table>
+    </div>
+
+    <div class="card">
+      <h3>Bridge · /world_model/state</h3>
+      <table id="state"><tr><td colspan="2" style="color:var(--dim)">no session</td></tr></table>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+const TOPICS = {
+  unity:   { topic: "/unity/camera/image_raw",            type: "sensor_msgs/msg/Image" },
+  x2:      { topic: "/world_model/image_raw",             type: "sensor_msgs/msg/Image" },
+  mask:    { topic: "/perception/mask",                   type: "sensor_msgs/msg/Image" },
+  status:  { topic: "/director/status",                   type: "std_msgs/msg/String" },
+  state:   { topic: "/world_model/state",                 type: "std_msgs/msg/String" },
+  prompt:  { topic: "/world_model/prompt",                type: "std_msgs/msg/String" },
+};
+
+const $ = (id) => document.getElementById(id);
+const el = { dot: $("dot"), status: $("status") };
+let ws = null, frameCounts = [0,0,0], lastHz = performance.now();
+
+function setStatus(text, ok) {
+  el.status.textContent = text;
+  el.dot.classList.toggle("on", !!ok);
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function subscribe(spec, throttle) {
+  send({ op: "subscribe", topic: spec.topic, type: spec.type,
+         throttle_rate: throttle || 0, queue_length: 1 });
+}
+
+function connect() {
+  if (ws) { try { ws.close(); } catch (e) {} }
+  const url = $("url").value.trim();
+  setStatus("connecting…", false);
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus("connected", true);
+    subscribe(TOPICS.status);
+    subscribe(TOPICS.state);
+    send({ op: "advertise", topic: TOPICS.prompt.topic, type: TOPICS.prompt.type });
+    // Cheap, once per connect, and it turns "blank pane" into "you meant
+    // /panther/camera_left/image_raw". Silently unavailable if rosapi is not
+    // running -- the service response comes back with result:false.
+    callService("/rosapi/topics_for_type",
+                { type: "sensor_msgs/msg/Image" },
+                (v) => { imageTopicsSeen = (v && v.topics) || []; });
+    applyTransport();
+  };
+  ws.onclose = () => setStatus("disconnected", false);
+  // rosbridge reports its own errors as op:"status"; a socket error here is
+  // almost always "rosbridge is not running", which is worth saying plainly.
+  ws.onerror = () => setStatus("cannot reach rosbridge", false);
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.op === "status" && m.level === "error") setStatus("rosbridge: " + m.msg, true);
+    if (m.op === "service_response") return onServiceResponse(m);
+    if (m.op !== "publish") return;
+    route(m.topic, m.msg);
+  };
+}
+
+function route(topic, msg) {
+  switch (topic) {
+    case TOPICS.status.topic: return onDirector(msg.data);
+    case TOPICS.state.topic:  return onState(msg.data);
+  }
+  // Image topics only arrive in rosbridge-raw mode.
+  const slot = rawSlots[topic];
+  if (slot !== undefined && msg.data) drawRaw(slot, msg);
+}
+
+function rowsToHtml(rows) {
+  // A row with no value is a banner, not a setting: span both columns so it
+  // does not get squeezed into the narrow label cell and wrap mid-phrase.
+  return rows.map(r => r[1] === "" || r[1] === undefined
+    ? `<tr><td colspan="2">${r[0]}</td></tr>`
+    : `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("");
+}
+
+// A JSON payload that will not parse is otherwise perfectly silent -- the
+// handler returns and the card just stops updating. That is how a NaN in a
+// status message (json.dumps writes a bare `NaN`, which JSON.parse rejects)
+// froze the director table on its last good value with nothing to see.
+function parsePayload(json, what) {
+  try {
+    return JSON.parse(json);
+  } catch (e) {
+    setStatus(`malformed ${what} payload -- ${e.message}`, true);
+    return null;
+  }
+}
+
+function onDirector(json) {
+  const d = parsePayload(json, "/director/status");
+  if (!d) return;
+  const rows = [
+    ["mode", d.mode], ["phase", d.phase],
+    ["condition", d.current_name ? `${d.current_id} · ${d.current_name}` : "—"],
+    ["difficulty", d.difficulty ?? "—"],
+    ["elapsed", (d.elapsed ?? 0) + "s"],
+    ["progress", `${d.completed}/${d.total}`],
+    ["last mean IoU", d.last_iou === null || d.last_iou === undefined ? "—" : Number(d.last_iou).toFixed(3)],
+  ];
+  $("director").innerHTML = rowsToHtml(rows);
+}
+
+function onState(json) {
+  const d = parsePayload(json, "/world_model/state");
+  if (!d) return;
+  const rows = [];
+  if (d.mock) rows.push(["<span class='bad-text'>MOCK — output is not from X2</span>", ""]);
+  rows.push(["generating", d.generating ? "yes" : "no"]);
+  if (d.width) rows.push(["output", `${d.width}×${d.height}`]);
+  if (d.keep_backlog !== undefined) rows.push(["keep_backlog", String(d.keep_backlog)]);
+  if (d.event) rows.push(["last event", d.event + (d.reason ? ` (${d.reason})` : "")]);
+  if (d.prompt) rows.push(["prompt", d.prompt.slice(0, 40) + "…"]);
+  $("state").innerHTML = rowsToHtml(rows);
+}
+
+// ---------- images: the two BUILD_SPEC 9.5 options ----------
+
+// Pane 1 is the only one bound to a topic Unity names itself -- panes 2 and 3
+// are rig-internal (/world_model/image_raw, /perception/mask) and never
+// change no matter what Unity calls its camera. Hardcoding pane 1's default
+// is exactly the failure this whole project keeps losing evenings to: Unity
+// publishes under its own name (e.g. /panther/camera_left/image_raw), the
+// panel subscribes to /unity/camera/image_raw, and the pane sits blank with
+// nothing on screen saying why. The field defaults to the common name but is
+// editable, same as the web_video_server base URL next to it.
+function paneTopics() {
+  const unity = $("unityTopic").value.trim() || TOPICS.unity.topic;
+  return [unity, TOPICS.x2.topic, TOPICS.mask.topic];
+}
+let PANE_TOPICS = paneTopics();
+let rawSlots = {};
+
+//: encoding -> bytes per pixel, the same table imgcodec.py moves. Anything
+//: else is refused rather than guessed: a wrong guess paints plausible
+//: garbage, which is worse than an empty pane.
+const CHANNELS = {
+  mono8: 1, "8UC1": 1,
+  rgb8: 3, bgr8: 3, "8UC3": 3,
+  rgba8: 4, bgra8: 4, "8UC4": 4,
+};
+const BGR_ORDER = { bgr8: true, bgra8: true };
+
+function slotFrame(i) { return document.querySelector(`.frame[data-slot="${i}"]`); }
+
+function imgFor(i) {
+  const frame = slotFrame(i);
+  let img = frame.querySelector("img");
+  if (!img) { frame.innerHTML = ""; img = document.createElement("img"); frame.appendChild(img); }
+  return img;
+}
+
+function canvasFor(i, w, h) {
+  const frame = slotFrame(i);
+  let c = frame.querySelector("canvas");
+  if (!c) { frame.innerHTML = ""; c = document.createElement("canvas"); frame.appendChild(c); }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
+
+// Say it in the pane, once. A bad frame at 10 Hz would otherwise either
+// rewrite the DOM 10 times a second or -- worse -- say nothing at all.
+const paneNoted = {};
+const paneTotal = [0, 0, 0];
+function paneNote(i, text) {
+  if (paneNoted[i] === text) return;
+  paneNoted[i] = text;
+  const frame = slotFrame(i);
+  frame.innerHTML = "";
+  const span = document.createElement("span");
+  span.className = "none bad-text";
+  // textContent, not innerHTML: topic and node names come back from rosapi,
+  // which is to say from whatever is running on the graph.
+  span.textContent = text;
+  frame.appendChild(span);
+}
+
+function applyTransport() {
+  const mode = $("transport").value;
+  // Drop whatever the other mode (or the previous topic name) set up, so
+  // switching never leaves a dead subscription eating websocket bandwidth
+  // behind a hidden <img>.
+  Object.keys(rawSlots).forEach(t => send({ op: "unsubscribe", topic: t }));
+  rawSlots = {};
+  PANE_TOPICS = paneTopics();
+  PANE_TOPICS.forEach((t, i) => {
+    delete paneNoted[i];
+    paneTotal[i] = 0;
+    // Name the topic. A pane that says "no frames" sends you to the browser
+    // console; a pane that says "waiting for /unity/camera/image_raw" sends
+    // you to `ros2 topic list`, which is where the answer actually is.
+    slotFrame(i).innerHTML =
+      `<span class="none">waiting for<br>${t}</span>`;
+    $("hz" + i).textContent = "";
+  });
+
+  if (mode === "wvs") {
+    const base = $("wvs").value.replace(/\/$/, "");
+    PANE_TOPICS.forEach((t, i) => {
+      // default_transport=raw is web_video_server's own default, and it is
+      // spelled out because it is the setting that decides whether these
+      // panes work: with `compressed` it subscribes to `<topic>/compressed`,
+      // which nothing in this graph publishes, and the pane stays blank with
+      // no error anywhere. See the transport note at the top of this file.
+      const img = imgFor(i);
+      // An MJPEG <img> that never receives data does not error; one that
+      // cannot reach the server does. Worth separating -- "wrong port" and
+      // "no publisher" look identical otherwise.
+      img.onerror = () => paneNote(i, `cannot reach web_video_server at ${base}`);
+      img.onload = () => { paneTotal[i]++; };
+      // The topic goes in RAW, not percent-encoded. web_video_server does not
+      // URL-decode its query parameters: encodeURIComponent turns
+      // /perception/mask into %2Fperception%2Fmask, which reaches rclcpp as a
+      // literal topic name and is rejected --
+      //     topic name must not contain characters other than alphanumerics,
+      //     '_', '~', '{', or '}': '%2Fperception%2Fmask'
+      // -- so the stream 500s and every MJPEG pane stays black. ROS topic
+      // names are already restricted to characters that are safe in a query
+      // value, so there is nothing to escape.
+      img.src = `${base}/stream?topic=${t}`
+              + `&type=mjpeg&quality=70&default_transport=raw`;
+    });
+  } else {
+    PANE_TOPICS.forEach((t, i) => {
+      rawSlots[t] = i;
+      // Throttled: raw frames are big, and the panes are 400px wide. The
+      // rig's own publishers are capped well below 24 Hz anyway.
+      subscribe({ topic: t, type: "sensor_msgs/msg/Image" }, 100);
+    });
+  }
+  scheduleDiagnosis();
+}
+
+function bytesOf(data) {
+  // rosbridge sends uint8[] as base64 by default; some builds and the test
+  // harness send a plain number array. Take either.
+  if (typeof data !== "string") return Uint8Array.from(data);
+  const bin = atob(data);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function drawRaw(slot, msg) {
+  const w = msg.width | 0, h = msg.height | 0;
+  const enc = msg.encoding || "rgb8";
+  const ch = CHANNELS[enc];
+  if (!w || !h) return;
+  if (!ch) return paneNote(slot, `encoding ${enc} not supported`);
+
+  const bytes = bytesOf(msg.data);
+  // `step` is bytes per ROW and may be larger than width*channels when the
+  // publisher pads rows. Honouring it costs nothing; assuming it away shears
+  // the image diagonally instead of failing.
+  const step = (msg.step | 0) || w * ch;
+  if (bytes.length < step * h) {
+    return paneNote(slot, `short frame: ${bytes.length}B, need ${step * h}B`);
+  }
+  delete paneNoted[slot];
+
+  const g = canvasFor(slot, w, h).getContext("2d");
+  const out = g.createImageData(w, h);
+  const px = out.data;
+  const bgr = BGR_ORDER[enc] === true;
+  for (let y = 0; y < h; y++) {
+    let s = y * step, d = y * w * 4;
+    for (let x = 0; x < w; x++, s += ch, d += 4) {
+      if (ch === 1) {
+        const v = bytes[s];
+        px[d] = v; px[d + 1] = v; px[d + 2] = v;
+      } else if (bgr) {
+        px[d] = bytes[s + 2]; px[d + 1] = bytes[s + 1]; px[d + 2] = bytes[s];
+      } else {
+        px[d] = bytes[s]; px[d + 1] = bytes[s + 1]; px[d + 2] = bytes[s + 2];
+      }
+      px[d + 3] = 255;   // alpha: ignored even when the encoding carries one
+    }
+  }
+  g.putImageData(out, 0, 0);
+  countFrame(slot);
+}
+
+// ---------- "why is this pane empty?" ----------
+//
+// The single most expensive failure in this rig is a topic name that nobody
+// publishes: the subscription is silent, rosbridge reports no error, and the
+// pane is blank in exactly the same way as a browser bug. rosapi (which
+// rosbridge_server launches alongside itself) can answer the question
+// directly, so the pane says which of the three it is:
+//
+//   nothing publishes <topic>      -> the name is wrong. The Image topics that
+//                                     DO exist are listed; it is one of them.
+//   N publishers, no frames        -> QoS, or a stalled publisher.
+//   cannot reach web_video_server  -> MJPEG mode, server down or wrong port.
+
+let svcSeq = 0;
+const svcPending = {};
+let imageTopicsSeen = [];
+let diagnoseTimer = null;
+
+function callService(service, args, cb) {
+  const id = "svc" + (++svcSeq);
+  svcPending[id] = cb;
+  send({ op: "call_service", service: service, args: args, id: id });
+}
+
+function onServiceResponse(m) {
+  const cb = svcPending[m.id];
+  if (!cb) return;
+  delete svcPending[m.id];
+  cb(m.result === false ? null : (m.values || {}));
+}
+
+function scheduleDiagnosis() {
+  if (diagnoseTimer) clearTimeout(diagnoseTimer);
+  // Long enough that a healthy graph has drawn something first -- a hint that
+  // fires before the first frame would cry wolf on every connect.
+  diagnoseTimer = setTimeout(diagnosePanes, 5000);
+}
+
+function diagnosePanes() {
+  const mjpeg = $("transport").value === "wvs";
+  PANE_TOPICS.forEach((t, i) => {
+    if (paneTotal[i]) return;                  // it is drawing; nothing to say
+    callService("/rosapi/publishers", { topic: t }, (v) => {
+      if (!v) return;                          // no rosapi -- stay quiet
+      const pubs = v.publishers || [];
+      if (!pubs.length) {
+        paneNote(i, `nothing publishes ${t}`
+          + (imageTopicsSeen.length
+              ? `\n\nImage topics on this graph:\n${imageTopicsSeen.join("\n")}`
+              : ""));
+      } else if (!mjpeg) {
+        // MJPEG frames are not counted, so only the rosbridge path can
+        // distinguish "publisher exists but nothing arrives" from "fine".
+        paneNote(i, `${t}\n${pubs.length} publisher(s), no frames here `
+                  + `-- check QoS (ros2 topic info -v)`);
+      }
+    });
+  });
+}
+
+function countFrame(slot) {
+  paneTotal[slot]++;
+  frameCounts[slot]++;
+  const now = performance.now();
+  if (now - lastHz > 1000) {
+    frameCounts.forEach((n, i) => {
+      $("hz" + i).textContent = n ? (n / ((now - lastHz) / 1000)).toFixed(0) + " Hz" : "";
+    });
+    frameCounts = [0, 0, 0];
+    lastHz = now;
+  }
+}
+
+// ---------- prompt ----------
+
+$("send").onclick = () => {
+  const text = $("prompt").value.trim();
+  if (!text) return;
+  if (text.length > 1000) {
+    $("promptHint").innerHTML = `<span class="bad-text">${text.length} chars — X2 caps at 1000 and the bridge will truncate.</span>`;
+  }
+  // Verbatim. A single changed word invalidates the comparison (BUILD_SPEC 5.3).
+  send({ op: "publish", topic: TOPICS.prompt.topic, msg: { data: text } });
+  setStatus("sent condition (" + text.length + " chars)", true);
+};
+
+$("catalog").onchange = (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let cat; try { cat = JSON.parse(reader.result); } catch (e) { return; }
+    const sel = $("preset");
+    sel.innerHTML = '<option value="">— pick a condition —</option>';
+    (cat.prompts || []).forEach(p => {
+      const o = document.createElement("option");
+      o.value = p.zh || p.en;
+      o.textContent = `${p.id} · ${p.name} (diff ${p.difficulty})`;
+      sel.appendChild(o);
+    });
+    setStatus(`catalog loaded — ${(cat.prompts || []).length} conditions`, true);
+  };
+  reader.readAsText(file);
+};
+
+// ---------- am I the current file? ----------
+//
+// A browser tab shows the OLD page while staying connected to a live
+// rosbridge: the tables keep updating from real messages and every symptom you
+// just fixed is still on screen, with nothing to say the page is stale.
+//
+// Serving `no-store` is not enough on its own. With no explicit caching
+// directives -- which is what `python -m http.server` sends -- a browser
+// applies HEURISTIC freshness from Last-Modified and will answer a navigation
+// straight from cache WITHOUT ASKING THE SERVER. The new no-store header is
+// then never seen, because no request is made. That is how a page four commits
+// old survived a server restart, a pull and a reload.
+//
+// So the page checks itself: HEAD its own URL with cache:"no-store" (which
+// does force a request), compare the server's Last-Modified against this DOM's
+// own, and reload once through a cache-busting URL if the file on disk is
+// newer. Once that lands, the no-store header keeps it fresh.
+$("stamp").textContent = "page " + document.lastModified;
+
+async function checkPageFreshness(mineOverride) {
+  let served;
+  try {
+    const probe = await fetch(location.pathname + "?probe=" + Date.now(),
+                              { method: "HEAD", cache: "no-store" });
+    const header = probe.headers.get("Last-Modified");
+    if (!header) return null;
+    served = new Date(header).getTime();
+  } catch (e) {
+    return null;                    // opened from file://, or server is gone
+  }
+  const mine = mineOverride !== undefined
+    ? mineOverride : new Date(document.lastModified).getTime();
+  if (!Number.isFinite(served) || !Number.isFinite(mine)) return null;
+
+  // A second of slack: Last-Modified has one-second resolution and
+  // document.lastModified is parsed from a locale string.
+  if (served - mine < 2000) return "current";
+
+  // Reload at most once per server version, so a clock skew or a parsing
+  // quirk cannot put the page in a refresh loop.
+  const key = "panel-reloaded-" + served;
+  try {
+    if (sessionStorage.getItem(key)) {
+      $("stamp").textContent = "page " + document.lastModified + " — STALE";
+      $("stamp").className = "bad-text";
+      return "stale";
+    }
+    sessionStorage.setItem(key, "1");
+  } catch (e) { /* storage disabled -- reloading once anyway is fine */ }
+
+  location.replace(location.pathname + "?v=" + served);
+  return "reloading";
+}
+
+checkPageFreshness();
+
+$("preset").onchange = (ev) => { if (ev.target.value) $("prompt").value = ev.target.value; };
+$("connect").onclick = connect;
+$("transport").onchange = applyTransport;
+$("wvs").onchange = applyTransport;
+$("unityTopic").onchange = applyTransport;
+</script>
+</body>
+</html>

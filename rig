@@ -484,7 +484,16 @@ cmd_topics() {
             LABELS_TOPIC) topic="$labels_topic" ;;
         esac
 
-        count="$(ros2 topic info "$topic" 2>/dev/null \
+        # `ros2 topic info` on a topic that has never appeared on the graph at
+        # all (not just "0 publishers") exits 1 and prints "Unknown topic" --
+        # not the same case as an unpublished-but-known topic, which exits 0.
+        # Under set -euo pipefail that non-zero exit propagates through the
+        # pipe and kills this script before it prints anything, which is
+        # exactly backwards: this command exists to be run FIRST, before
+        # anything is wired up, when every topic below is unknown to the
+        # graph. `|| true` turns "script dies silently" into "count stays 0",
+        # which is already handled as NO PUBLISHER below.
+        count="$( (ros2 topic info "$topic" 2>/dev/null || true) \
                  | sed -n 's/^Publisher count: //p')"
         count="${count:-0}"
         if [ "$count" -gt 0 ]; then
@@ -506,7 +515,7 @@ cmd_topics() {
             candidates=""
             for cand in $(printf '%s\n' "$listing" | grep -F "[$type_name]" \
                           | sed 's/ \[.*//' | grep -v "^${topic}$"); do
-                cand_n="$(ros2 topic info "$cand" 2>/dev/null \
+                cand_n="$( (ros2 topic info "$cand" 2>/dev/null || true) \
                           | sed -n 's/^Publisher count: //p')"
                 [ "${cand_n:-0}" -gt 0 ] && candidates="$candidates $cand"
             done
@@ -566,7 +575,7 @@ cmd_panel() {
     # a heuristically-cached copy: a changed file is a changed URL.
     local panel_v
     panel_v="$(date -r "$REPO/panel/index.html" +%s 2>/dev/null || echo 0)"
-    say "control panel on http://localhost:${PANEL_PORT}/index.html?v=${panel_v}"
+    say "Sim Genie on http://localhost:${PANEL_PORT}/index.html?v=${panel_v} -- Open Control Panel from there"
     if [ "$demo" -eq 1 ]; then
         printf '  %sConnect to ws://localhost:9090 and pick "rosbridge raw Image".%s\n' "$D" "$Z"
     else

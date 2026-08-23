@@ -116,6 +116,16 @@ export class X2Sink {
     this.video.muted = true;
     this.video.playsInline = true;
     this.video.autoplay = true;
+    // Visually hidden, but IN the document -- a <video> that is never
+    // attached to the DOM has its srcObject play() resolve fine, but Chrome
+    // (and most browsers) never actually advance its decode pipeline for a
+    // WebRTC MediaStream on a detached element: videoWidth/videoHeight stay
+    // 0 forever, _tick() below keeps bailing out on that check, and nothing
+    // is ever published -- with no error anywhere, since play() itself did
+    // not fail. X2MainVideoView (the pane that DOES show the repaint) works
+    // for exactly the opposite reason: it is actually mounted on screen.
+    this.video.style.cssText =
+      "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;";
     this.canvas = document.createElement("canvas");
     this.ctx = this.canvas.getContext("2d", { willReadFrequently: true });
     this.published = 0;
@@ -125,6 +135,7 @@ export class X2Sink {
   }
 
   async attach(track) {
+    if (!this.video.isConnected) document.body.appendChild(this.video);
     this.video.srcObject = new MediaStream([track]);
     try {
       await this.video.play();
@@ -158,6 +169,7 @@ export class X2Sink {
     clearInterval(this._timer);
     this._timer = null;
     this.video.srcObject = null;
+    if (this.video.isConnected) this.video.remove();
   }
 }
 

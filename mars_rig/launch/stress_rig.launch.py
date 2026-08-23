@@ -143,6 +143,22 @@ def generate_launch_description():
             name="rosbridge_websocket", output="screen",
             condition=IfCondition(arg("rosbridge")),
         ),
+        # rosbridge_websocket_launch.xml normally brings this up alongside
+        # rosbridge_websocket; launching the bare node here skipped it. Without
+        # it, /rosapi/topics_for_type and /rosapi/publishers don't exist, so
+        # the panel's connect() still succeeds and the websocket looks fine,
+        # but its entire "why is this pane empty" diagnosis (diagnosePanes())
+        # goes silently quiet forever -- panel/index.html's own comment says
+        # so: "Silently unavailable if rosapi is not running". That is the
+        # single most useful feature this rig has for the exact failure it
+        # warns about everywhere else (README: "a subscription to an
+        # unpublished topic is completely silent"), so it must not be the one
+        # piece left out.
+        Node(
+            package="rosapi", executable="rosapi_node",
+            name="rosapi", output="screen",
+            condition=IfCondition(arg("rosbridge")),
+        ),
         Node(
             package="web_video_server", executable="web_video_server",
             name="web_video_server", output="screen",

@@ -34,7 +34,8 @@ mars_rig/                 ROS 2 Jazzy python package (colcon)
   test/                   pytest, runs with no ROS installed
 tools/offline_loop.py     the whole loop with no ROS, no Unity, no credits
 rig                       install / build / run — the single entry point
-panel/index.html          control panel (rosbridge, plain JS, single file)
+panel/index.html          landing page ("Sim Genie")
+panel/control.html        control panel (rosbridge, plain JS, single file)
 unity/Assets/MarsRig/     Unity C# — copy into the Unity project (see unity/README.md)
 results/                  results.csv, results.md, bags
 ```
@@ -70,7 +71,7 @@ ROS, so `./rig` does not let it in.
 ./rig install --offline-only   # no sudo, no ROS: just a .venv
 ./rig test
 ./rig offline
-./rig panel                    # http://localhost:8000/index.html
+./rig panel                    # http://localhost:8000/index.html -> control.html
 ```
 
 `./rig offline` walks all 23 conditions in about a minute and writes
@@ -116,8 +117,10 @@ Three ports are involved and they are all different things:
 | **9090** | `rosbridge_websocket` — the ROS data feed | the page, after **connect** |
 | **8080** | `web_video_server` — MJPEG image streams | the page's `<img>` tags, MJPEG mode only |
 
-Then open **http://localhost:8000/index.html**, put `ws://localhost:9090` in the
-box, press **connect**, and set *images* to **rosbridge raw Image**.
+Then open **http://localhost:8000/index.html** — a landing page ("Sim Genie")
+with an **Open Control Panel** button through to `control.html`, where you put
+`ws://localhost:9090` in the box, press **connect**, and set *images* to
+**rosbridge raw Image**.
 
 `--demo` runs `tools/fake_rosbridge.py`, which speaks enough of the rosbridge
 protocol to feed the page a synthetic scene, a live score and director status.

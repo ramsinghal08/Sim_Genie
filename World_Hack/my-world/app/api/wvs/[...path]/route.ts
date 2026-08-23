@@ -11,24 +11,24 @@
 //     direct to web_video_server   2,636,720 bytes
 //     through the dev rewrite              0 bytes
 //
-// `next start` streamed it, which is exactly the trap: it worked in a
-// production build and failed for everyone running `npm run dev`.
-//
 // A route handler returning the upstream `body` stream forwards chunks as they
 // arrive, in dev and in production alike.
 //
-// WHY PROXY AT ALL
-// ----------------
-// The frames land in a <canvas> whose captureStream() feeds WebRTC, and a
-// canvas that has drawn a CROSS-ORIGIN image is tainted -- a tainted canvas
-// cannot be captured. web_video_server is on another port (and this app is
-// often opened on a LAN address), so it is always cross-origin. Same-origin
-// through here sidesteps it without depending on web_video_server's CORS.
-
-// 127.0.0.1, not "localhost". Node resolves localhost to ::1 first on some
-// systems; if web_video_server bound IPv4-only the server-side fetch fails
-// while the browser -- which falls back -- reaches it fine. That asymmetry
-// looks exactly like "the app is broken and the panel works".
+// THE QUERY STRING MUST BE REBUILT BY HAND, NOT PASSED THROUGH
+// --------------------------------------------------------------
+// `new URL(request.url).search` looked like the obvious way to forward the
+// query string, and it silently re-broke the exact failure BUILD_SPEC and
+// panel/index.html already warn about: Next's own URL parsing of the
+// incoming request re-encodes '/' in the query string, so `?topic=/unity/
+// camera/image_raw` arrives here as `?topic=%2Funity%2Fcamera%2Fimage_raw`.
+// web_video_server does not URL-decode its query parameters, so that percent-
+// encoded slash reaches it as a literal character in the topic name -- which
+// matches nothing -- and it writes the multipart boundary line, finds no
+// frames for a topic that does not exist, and the stream just sits there
+// (from the client's point of view: 22 bytes, then a clean close). No error
+// anywhere; this is what silent looks like. `searchParams.get()` decodes
+// correctly, so the fix is to read `topic` through that and place it back on
+// the URL RAW, exactly like the browser-side fix in panel/index.html.
 const WVS = process.env.WEB_VIDEO_SERVER_URL || "http://127.0.0.1:8080";
 
 // Never prerender or cache: this is a live stream.
@@ -40,17 +40,24 @@ export async function GET(
   context: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await context.params;
-  const search = new URL(request.url).search;
-  const target = `${WVS}/${path.join("/")}${search}`;
+  const incoming = new URL(request.url);
+  const parts: string[] = [];
+  for (const [key, value] of incoming.searchParams) {
+    // ROS topic names only ever contain alphanumerics, '_', '~', '/', '{',
+    // '}' -- there is nothing in a valid topic name that needs escaping, and
+    // escaping it anyway is what breaks it. Every other param (type, quality,
+    // default_transport, width, height, ...) is a plain token and safe to
+    // encode normally.
+    parts.push(
+      key === "topic" ? `topic=${value}` : `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    );
+  }
+  const target =
+    `${WVS}/${path.join("/")}` + (parts.length ? `?${parts.join("&")}` : "");
 
   let upstream: Response;
   try {
-    upstream = await fetch(target, {
-      // The client going away must tear the upstream connection down too,
-      // or every reload leaves web_video_server encoding for nobody.
-      signal: request.signal,
-      cache: "no-store",
-    });
+    upstream = await fetch(target, { cache: "no-store" });
   } catch (e) {
     return new Response(
       `cannot reach web_video_server at ${WVS}: ${
