@@ -14,3 +14,6 @@ results/**/
 # ./rig install artefacts
 .venv/
 third_party/
+
+
+World_Hack/my-world/env.local
