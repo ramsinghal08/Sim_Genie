@@ -6,22 +6,7 @@
 <title>Sim Genie</title>
 <meta name="description" content="Sim Genie - we can't take our rover to Mars, so we bring Mars to the rover, and break it on purpose until perception fails.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e8703a'/%3E%3Ccircle cx='11' cy='12' r='3' fill='%23b4552a'/%3E%3Ccircle cx='21' cy='20' r='4' fill='%23b4552a'/%3E%3C/svg%3E">
-<!--
-  Landing page for the rig. Single file, plain JS, no framework, no CDN --
-  same reason the control panel is: it has to open from a laptop with no
-  network.
-
-  This file used to BE the control panel (rosbridge connect box, three video
-  panes, prompt box, director/bridge tables). That moved to control.html so
-  this could become a proper front door -- what the project is, in the
-  visitor's first two lines, with more detail below for anyone who wants it,
-  and a way into the actual panel. Nothing about the control panel's wiring
-  changed in that move.
-
-  This page carries the same "am I stale?" self-check as control.html, for
-  the same reason: `./rig panel` and tools/panel_server.py both key their
-  cache-busting off index.html specifically (see tools/panel_server.py).
--->
+<!-- Landing page. Single file, plain JS, no CDN, so it opens offline. -->
 <style>
   :root {
     --bg:#0a0c0f; --panel:#12161d; --panel-2:#161b23; --line:#232a35;
@@ -305,14 +290,8 @@
 
 <script>
 "use strict";
-// ---------- am I the current file? ----------
-//
-// Same self-check as control.html, and for the same reason: a browser tab
-// left open across an edit is a liar. `no-store` (tools/panel_server.py)
-// only affects the NEXT fetch, so a tab that never fetches again never sees
-// it -- this page HEADs itself and reloads through a cache-busting URL if the
-// file on disk is newer. See control.html for the long version of this
-// comment; it is unchanged here on purpose.
+// Stale-page self-check (same as control.html): HEAD this page and reload
+// once through a cache-busting URL if the file on disk is newer.
 const stamp = document.getElementById("stamp");
 if (stamp) stamp.textContent = "page " + document.lastModified;
 

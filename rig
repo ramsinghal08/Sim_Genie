@@ -11,16 +11,9 @@
 #
 # Run `./rig` with no arguments for the full list.
 #
-# DESIGN NOTES
-# ------------
-# Two python environments, on purpose. `.venv` is for the offline path and the
-# tests, so `pip install` never has to touch a ROS install. Anything that runs
-# under `ros2 run` uses SYSTEM python, because that is where rclpy lives and a
-# venv cannot see it -- which is why reactor-sdk goes to --user rather than
-# into .venv.
-#
-# Every step is idempotent. Re-running install after a partial failure picks up
-# where it left off rather than starting again.
+# Two python environments: `.venv` for the offline path and tests; system
+# python for anything under `ros2 run` (rclpy lives there, so reactor-sdk is
+# installed with --user). Every step is idempotent.
 
 set -euo pipefail
 
@@ -49,7 +42,7 @@ die()  { printf '%serror:%s %s\n' "$R" "$Z" "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# sudo only where it is genuinely needed, and never silently.
+# sudo only where needed.
 SUDO=""
 need_sudo() {
     [ "$(id -u)" -eq 0 ] && return 0
@@ -75,21 +68,8 @@ py() {
     if [ -x "$VENV/bin/python" ]; then echo "$VENV/bin/python"; else echo "python3"; fi
 }
 
-# Run the offline interpreter with ROS stripped out of the environment.
-#
-# Sourcing ROS 2 puts /opt/ros/$ROS_DISTRO/lib/pythonX.Y/site-packages on
-# PYTHONPATH, and a venv does NOT shadow PYTHONPATH -- venv paths are appended
-# after it. So in a ROS-sourced shell the venv's python imports ROS packages,
-# and the venv's pytest discovers ROS's `launch_testing` pytest11 entry point,
-# tries to load it, and dies on `import yaml` because yaml lives in the ROS
-# environment and not in the venv:
-#
-#     File "/opt/ros/jazzy/.../launch/utilities/type_utils.py", line 31
-#     ModuleNotFoundError: No module named 'yaml'
-#
-# Nothing in the offline path needs ROS, so the fix is to not let it in.
-# PYTEST_DISABLE_PLUGIN_AUTOLOAD covers the same class of problem for any other
-# pytest plugin a system install might register -- these tests need none.
+# Run the offline interpreter with ROS stripped from the environment: a sourced
+# ROS leaks into a venv via PYTHONPATH and breaks pytest plugin loading.
 runpy() {
     env -u PYTHONPATH -u ROS_DISTRO -u AMENT_PREFIX_PATH \
         PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$(py)" "$@"
@@ -99,14 +79,8 @@ ros_pkg_present() {
     [ -d "/opt/ros/${ROS_DISTRO_WANTED}/share/$1" ]
 }
 
-# Is something already listening on this port?
-#
-# rosbridge_websocket and web_video_server do NOT exit when their port is
-# taken: they log "unable to start server: [Errno 98] Address already in use"
-# and retry every 2s, forever. Two launches deep, that scrolls past and the
-# panel appears to connect (to the OLD instance, from the previous run) while
-# the new graph's nodes are invisible to it. Checking first, and saying so, is
-# the difference between a confusing evening and a one-line fix.
+# Is something already listening on this port? (rosbridge_websocket and
+# web_video_server retry forever instead of exiting when their port is taken.)
 port_in_use() {
     (echo >"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
 }
@@ -144,10 +118,7 @@ cmd_doctor() {
     fi
 
     say "OpenCV"
-    # Two OpenCVs on one interpreter is a real hazard for ROS python packages:
-    # anything that resolves types through a compiled module and a runtime cv2
-    # table (cv_bridge does) breaks with an error naming neither. mars_rig no
-    # longer uses cv_bridge for exactly this reason, but other packages might.
+    # A pip OpenCV shadowing the system one breaks cv_bridge-style packages.
     local cvinfo cvver cvpath
     cvinfo="$(python3 -c 'import cv2; print(cv2.__version__, cv2.__file__)' 2>/dev/null || true)"
     if [ -z "$cvinfo" ]; then
@@ -194,8 +165,7 @@ install_python() {
         ok "created .venv"
     fi
     "$VENV/bin/pip" install -q --upgrade pip >/dev/null 2>&1 || true
-    # websockets is for tools/fake_rosbridge.py, which drives the panel with
-    # no ROS running -- see ./rig panel --demo.
+    # websockets is for tools/fake_rosbridge.py (./rig panel --demo).
     "$VENV/bin/pip" install -q numpy "opencv-python-headless" pytest websockets
     ok "numpy, opencv, pytest, websockets"
 }
@@ -203,10 +173,8 @@ install_python() {
 install_reactor_sdk() {
     say "reactor-sdk"
     if python3 -c "import reactor_sdk" 2>/dev/null; then ok "already importable"; return; fi
-    # --user, and into SYSTEM python: x2_bridge_node runs under `ros2 run`,
-    # which uses system python, so a .venv install would be invisible to it.
-    # --break-system-packages is what PEP 668 needs on Ubuntu 24.04; --user
-    # keeps it in ~/.local rather than in /usr.
+    # System python (x2_bridge_node runs under `ros2 run`); --break-system-packages
+    # satisfies PEP 668 on Ubuntu 24.04.
     if pip3 install -q --user --break-system-packages reactor-sdk 2>/dev/null \
        || pip3 install -q --user reactor-sdk 2>/dev/null; then
         ok "installed to ~/.local (system python can see it)"
@@ -240,8 +208,7 @@ install_ros() {
 
     need_sudo
     say "ROS extras"
-    # Split from ros-base: if one of these is unavailable, the others should
-    # still land rather than the whole apt transaction failing.
+    # Installed one by one so a single unavailable package does not abort the rest.
     for p in cv-bridge vision-opencv rosbridge-suite web-video-server image-transport-plugins; do
         if ros_pkg_present "${p//-/_}"; then ok "$p"; continue; fi
         if $SUDO apt-get install -y -qq "ros-${ROS_DISTRO_WANTED}-${p}" 2>/dev/null; then
@@ -319,8 +286,7 @@ cmd_offline() {
         || die "numpy/opencv missing. Run: ./rig install --offline-only"
     say "offline loop -- no ROS, no Unity, no credits"
     printf '  %sEverything this writes is stamped SIMULATED. It proves the loop, not the numbers.%s\n' "$D" "$Z"
-    # Defaults sized for a rehearsal, not a measurement. Anything passed on the
-    # command line wins, because argparse takes the last occurrence.
+    # Rehearsal defaults; later command-line arguments override them.
     runpy "$REPO/tools/offline_loop.py" --mode sweep --settle 2 --dwell 4 "$@"
 }
 
@@ -348,12 +314,7 @@ cmd_mock() {
     ros2 launch mars_rig stress_rig.launch.py mock:=true "${extra[@]}" "$@"
 }
 
-# Skip the servers whose ports are already taken, and say why.
-#
-# Launching a second rosbridge_websocket does not fail loudly -- it retries
-# "Address already in use" forever while the panel talks to the first one. The
-# result looks exactly like a broken graph. Named args win, so an explicit
-# rosbridge:=true still overrides this.
+# Skip servers whose ports are already taken; an explicit rosbridge:=true wins.
 servers_already_up() {
     local -n out=$1; shift
     local rest="$*"
@@ -415,25 +376,17 @@ cmd_sweep() {
     servers_already_up extra "${args[@]+"${args[@]}"}"
     args=("${extra[@]+"${extra[@]}"}" "${args[@]+"${args[@]}"}")
 
-    # Credits bill per second, so the session must not outlive this script --
-    # including on Ctrl-C, which is how a run actually ends most of the time.
-    # By PID rather than `kill 0`: the process group reaches back to whatever
-    # invoked this, and taking someone's shell down with the run is a rude way
-    # to end a demo.
-    # NOT `local`: the EXIT trap fires after this function has returned, and a
-    # local is gone by then -- under `set -u` cleanup_sweep dies with
-    # "line NNN: launch_pid: unbound variable" instead of closing the session.
-    # A session left open bills per second, so this one is not cosmetic.
+    # The live session bills per second, so close it on exit or Ctrl-C. Kill by
+    # PID (not the process group), and keep LAUNCH_PID global: the EXIT trap
+    # runs after this function returns.
     LAUNCH_PID=""
     cleanup_sweep() {
         local launch_pid="${LAUNCH_PID:-}"
         [ -n "$launch_pid" ] || return 0
         kill -INT "$launch_pid" 2>/dev/null || true
-        # ros2 launch needs a moment to tear the nodes down; the bridge
-        # disconnects its session in that window.
+        # Wait for teardown; the bridge disconnects its session meanwhile.
         wait "$launch_pid" 2>/dev/null || true
-        # Cleared globally, so the EXIT trap after an INT is a no-op rather
-        # than a second teardown of a pid that is already gone.
+        # Cleared so the EXIT trap after an INT is a no-op.
         LAUNCH_PID=""
         say "session closed"
     }
@@ -445,8 +398,6 @@ cmd_sweep() {
     LAUNCH_PID=$!
     wait "$LAUNCH_PID" || true
 }
-
-# ---------------------------------------------------------------- panel
 
 # ---------------------------------------------------------------- topics
 
@@ -484,15 +435,8 @@ cmd_topics() {
             LABELS_TOPIC) topic="$labels_topic" ;;
         esac
 
-        # `ros2 topic info` on a topic that has never appeared on the graph at
-        # all (not just "0 publishers") exits 1 and prints "Unknown topic" --
-        # not the same case as an unpublished-but-known topic, which exits 0.
-        # Under set -euo pipefail that non-zero exit propagates through the
-        # pipe and kills this script before it prints anything, which is
-        # exactly backwards: this command exists to be run FIRST, before
-        # anything is wired up, when every topic below is unknown to the
-        # graph. `|| true` turns "script dies silently" into "count stays 0",
-        # which is already handled as NO PUBLISHER below.
+        # `ros2 topic info` exits 1 for topics unknown to the graph; `|| true`
+        # keeps set -e/pipefail from aborting and leaves count at 0.
         count="$( (ros2 topic info "$topic" 2>/dev/null || true) \
                  | sed -n 's/^Publisher count: //p')"
         count="${count:-0}"
@@ -503,14 +447,8 @@ cmd_topics() {
             missing=$((missing + 1))
             bad "$(printf '%-34s %s' "$topic" "NO PUBLISHER")"
             printf '    %s%s%s\n' "$D" "$label" "$Z"
-            # The name you want is nearly always one of the same type that IS
-            # published -- which is the entire lesson of the /panther/ evening.
-            # `ros2 topic list` shows every topic ON THE GRAPH, which
-            # includes ones that only have SUBSCRIBERS -- the missing topics
-            # themselves appear there, since this rig subscribes to them. A
-            # suggestion list that offers a topic nobody publishes is worse
-            # than no suggestion: it reads as "try this one" and sends you
-            # to a name that cannot work either.
+            # Suggest same-typed topics that have a publisher (the topic list
+            # also contains subscriber-only topics, which would mislead).
             local candidates cand cand_n
             candidates=""
             for cand in $(printf '%s\n' "$listing" | grep -F "[$type_name]" \
@@ -565,14 +503,12 @@ cmd_panel() {
         say "fake rosbridge on ws://localhost:9090 -- synthetic data, no ROS"
         runpy "$REPO/tools/fake_rosbridge.py" &
         fake_pid=$!
-        # By PID: the panel server runs in this same shell, and killing the
-        # process group would take the caller's terminal with it.
+        # Kill by PID, not process group.
         trap 'kill "$fake_pid" 2>/dev/null || true' INT TERM EXIT
         sleep 1
     fi
 
-    # The printed link carries the file's mtime, so clicking it can never hit
-    # a heuristically-cached copy: a changed file is a changed URL.
+    # The link carries the file's mtime so a cached copy is never reused.
     local panel_v
     panel_v="$(date -r "$REPO/panel/index.html" +%s 2>/dev/null || echo 0)"
     say "Sim Genie on http://localhost:${PANEL_PORT}/index.html?v=${panel_v} -- Open Control Panel from there"
@@ -583,10 +519,7 @@ cmd_panel() {
         printf '  %sNo ROS? ./rig panel --demo feeds it synthetic data instead.%s\n' "$D" "$Z"
     fi
     printf '  %sCtrl-C to stop.%s\n' "$D" "$Z"
-    # Not `python -m http.server`: it answers a conditional request with 304,
-    # so a tab left open across an edit keeps showing the OLD page -- connected
-    # to a live rosbridge, updating from real messages, and still displaying
-    # every symptom you just fixed. See tools/panel_server.py.
+    # panel_server.py instead of http.server: it disables caching.
     runpy "$REPO/tools/panel_server.py" \
         --port "$PANEL_PORT" --directory "$REPO/panel"
 }

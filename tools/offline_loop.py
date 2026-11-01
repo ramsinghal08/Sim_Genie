@@ -1,31 +1,13 @@
 #!/usr/bin/env python3
-"""
-offline_loop.py -- run the whole rig with no ROS, no Unity and no credits.
+"""Run the whole rig offline (no ROS, Unity or credits).
 
     synthetic scene -> stand-in restyle -> perception -> scorer -> director
-                              ^                                       |
-                              +------------- next prompt -------------+
 
-WHY THIS EXISTS
----------------
-Four people share one paid session and Unity is the longest pole, so the loop
-has to be provable before either is available. This runs the SAME perception,
-the SAME IoU maths and the SAME director core that the ROS nodes run -- only
-the transport (topics) and the two ends (Unity, X2) are stood in for.
+Uses the same perception, IoU and director core as the ROS nodes; only the
+transport and the two ends (Unity, X2) are stubbed. It proves the loop closes,
+not any number: outputs are stamped SIMULATED.
 
-WHAT IT PROVES AND WHAT IT DOES NOT
------------------------------------
-Proves:      the loop closes, the ladder walks, results.csv and results.md
-             populate, IoU responds to a degrading image, settle_sec earns its
-             keep (see --block-sec below).
-Proves NOT:  any number. synthetic_scene.degrade() is not X2. The results this
-             writes are stamped SIMULATED and must never be shown to a judge as
-             a measurement.
-
-USAGE
------
-    python3 tools/offline_loop.py --ceiling             # the sanity check first
-    python3 tools/offline_loop.py --mode sweep --settle 2 --dwell 4
+    python3 tools/offline_loop.py --ceiling
     python3 tools/offline_loop.py --mode adaptive --settle 2 --dwell 4
 """
 
@@ -34,7 +16,7 @@ import os
 import sys
 import time
 
-# Import the real package whether or not it has been colcon-installed.
+# Import the package whether or not it has been colcon-installed.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 os.pardir, "mars_rig"))
 
@@ -57,11 +39,7 @@ def log(level, msg):
 
 
 def ceiling(scene, space, args):
-    """Score perception on the PLAIN render against its own labels.
-
-    the design requirements: this is the ceiling. If it is low, perception or label
-    alignment is broken and no world-model result below it means anything.
-    """
+    """Score perception on the plain render against its own labels (the ceiling)."""
     vals = []
     for i in range(args.ceiling_frames):
         rgb, labels = scene.render(i / args.fps)
@@ -88,9 +66,9 @@ def run(args):
         if args.ceiling_only:
             return 0
 
-    emitted = []          # (time, prompt) the director asked X2 to apply
-    applied = None        # what the stand-in model is actually rendering
-    t = [0.0]             # simulated clock, in a list so the emit closure sees it
+    emitted = []          # (time, prompt) requested by the director
+    applied = None        # prompt the stand-in model is rendering
+    t = [0.0]             # simulated clock (list so the emit closure sees it)
 
     catalog = Catalog(args.catalog)
     core = DirectorCore(
@@ -104,9 +82,7 @@ def run(args):
     wall0 = time.monotonic()
 
     while core.phase != "done" and t[0] < args.max_sec:
-        # A prompt does not take effect the instant it is sent: X2 applies it at
-        # the next block boundary. Modelling that lag here is what makes the
-        # settle period visible instead of theoretical.
+        # A prompt takes effect only after block_sec (X2 applies at block boundaries).
         while emitted and (t[0] - emitted[0][0]) >= args.block_sec:
             applied = emitted.pop(0)[1]
 
@@ -138,11 +114,7 @@ def run(args):
 
 
 def _stamp_simulated(path):
-    """Anything this harness writes says so, in the file, at the top.
-
-    A results.md that looks exactly like a real one is a genuine hazard at
-    16:00 on Sunday.
-    """
+    """Prepend a banner so simulated results cannot pass for measurements."""
     if not os.path.exists(path):
         return
     with open(path, encoding="utf-8") as fh:
@@ -178,8 +150,7 @@ def main():
     p.add_argument("--escalate-above", type=float, default=0.75)
     p.add_argument("--break-below", type=float, default=0.25)
     p.add_argument("--max-sec", type=float, default=400.0,
-                   help="simulated-seconds budget; a stalled adaptive run "
-                        "hits this instead of spinning forever")
+                   help="simulated-seconds budget for a stalled run")
     p.add_argument("--real-time", action="store_true",
                    help="pace to the wall clock instead of running flat out")
     p.add_argument("--ceiling", action="store_true",
