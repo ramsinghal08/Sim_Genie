@@ -4,14 +4,10 @@ using UnityEngine;
 namespace MarsRig
 {
     /// <summary>
-    /// The semantic classes the label camera renders and the scorer reads.
-    ///
-    /// These values MUST match DEFAULT_PALETTE in mars_rig/mars_rig/labels.py.
-    /// The scorer assigns each pixel to the nearest palette colour, so a
-    /// mismatch here does not throw -- it quietly maps every rock to the wrong
-    /// class and reports a plausible, meaningless IoU. If you change a colour,
-    /// change it in both places, or pass the new palette to scoring_node as its
-    /// `palette_json` parameter and leave the file alone.
+    /// Semantic classes rendered by the label camera and read by the scorer.
+    /// Palette values must match DEFAULT_PALETTE in mars_rig/mars_rig/labels.py.
+    /// A mismatch does not raise an error; the scorer maps pixels to the wrong
+    /// class. Change both places, or pass `palette_json` to scoring_node.
     /// </summary>
     public enum MarsClass
     {
@@ -23,9 +19,8 @@ namespace MarsRig
 
     public static class MarsClasses
     {
-        // Deliberately saturated and far apart in RGB: the scorer's
-        // nearest-colour assignment has to survive a resize and a re-encode,
-        // and colours that sit close together are what makes that fail.
+        // Saturated and well separated so nearest-colour assignment survives
+        // resizing and re-encoding.
         public static readonly Dictionary<MarsClass, Color32> Palette =
             new Dictionary<MarsClass, Color32>
         {

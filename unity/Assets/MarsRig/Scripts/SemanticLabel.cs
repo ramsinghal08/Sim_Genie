@@ -3,12 +3,9 @@ using UnityEngine;
 namespace MarsRig
 {
     /// <summary>
-    /// Tags a renderer with the class the label camera should paint it.
-    ///
-    /// Attach to anything that appears in the scored scene. Anything WITHOUT
-    /// this component renders as Unlabelled and is ignored by the metric --
-    /// which is the safe default: a forgotten object cannot silently count as
-    /// drivable ground.
+    /// Tags a renderer with the class the label camera paints it.
+    /// Objects without this component render as Unlabelled and are ignored by
+    /// the metric, so a forgotten object cannot count as drivable ground.
     /// </summary>
     [DisallowMultipleComponent]
     public class SemanticLabel : MonoBehaviour
