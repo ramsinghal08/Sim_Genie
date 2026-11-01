@@ -2,31 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// captureStream is widely supported on canvas but still missing from some
-// DOM lib typings; declare the surface we use.
+// captureStream is missing from some DOM lib typings.
 type CapturableCanvas = HTMLCanvasElement & {
   captureStream?: (frameRate?: number) => MediaStream;
 };
 
-// The model's native pacing; matches the demo clips (fps: 24).
+// Model's native pacing (matches the demo clips).
 const STREAM_FPS = 24;
 
-// The streamed frame is a fixed 16:9 canvas. The model picks its output
-// resolution bucket from the source stream's aspect ratio, so pinning the
-// canvas to 16:9 pins the whole run — preview pane, source stream, and
-// edited output — to the same landscape shape regardless of the picked
-// image's own aspect.
+// Fixed 16:9 frame: the model picks its output resolution from the source
+// aspect ratio, so this keeps preview, source and output consistent.
 const FRAME_WIDTH = 1280;
 const FRAME_HEIGHT = 720;
 
-// Still image -> a constant `source` stream. The image is drawn to a canvas
-// and captured with canvas.captureStream(24); the draw loop keeps repainting
-// the same frame so the capturer keeps emitting it — from the model's side
-// this is indistinguishable from a video of a motionless scene, which is
-// exactly the drag-to-animate setup: a still subject the pointer brings to
-// life. This component *produces* the track; useSourcePublisher publishes
-// it. The same canvas is the "original" pane in the stage, so what you see
-// is what the model receives.
+// Still image -> constant `source` stream. The image is drawn to a canvas that
+// is repainted at the stream rate so captureStream keeps emitting it (the
+// drag-to-animate setup). Produces the track; useSourcePublisher publishes it.
+// The same canvas is the "original" pane in the stage.
 export function ImageSource({
   imageUrl,
   onTrack,
@@ -55,9 +47,7 @@ export function ImageSource({
         setError("Canvas 2D is unavailable in this browser.");
         return;
       }
-      // Cover-crop the image into the 16:9 frame (center crop, no
-      // distortion, no letterbox bars for the model to "edit") — the same
-      // resize-and-crop the model applies to source frames anyway.
+      // Center cover-crop into the 16:9 frame (no distortion or letterbox).
       const scale = Math.max(
         FRAME_WIDTH / img.naturalWidth,
         FRAME_HEIGHT / img.naturalHeight,
@@ -88,12 +78,11 @@ export function ImageSource({
       const track =
         capture.call(canvas, STREAM_FPS).getVideoTracks()[0] ?? null;
       if (!track) return;
-      track.contentHint = "detail"; // hold resolution; adapt framerate
+      track.contentHint = "detail";
       captured = track;
       onTrack(track);
 
-      // captureStream only emits when the canvas repaints, so keep marking
-      // it dirty at the stream rate to repeat the frame indefinitely.
+      // captureStream only emits on repaint; redraw at the stream rate.
       drawTimer = setInterval(draw, 1000 / STREAM_FPS);
     };
     img.onerror = () => {

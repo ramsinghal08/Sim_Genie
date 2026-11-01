@@ -1,9 +1,7 @@
-"""The classical baseline segmenter, and the loop it sits in.
+"""The classical baseline segmenter and the loop it sits in.
 
-These do not assert that segmentation is GOOD -- BUILD_SPEC 9.2 is still open
-and the model will change. They assert the contract downstream depends on:
-output shape, output encoding, and that the score moves the right way when the
-image degrades.
+These assert the downstream contract (output shape and encoding, and that the
+score falls as the image degrades), not segmentation quality.
 """
 
 import numpy as np
@@ -41,16 +39,14 @@ def test_sky_is_above_the_horizon_and_ground_below(space, scene):
 
 
 def test_colourise_round_trips_through_the_palette(space, scene):
-    """The mask is published as palette RGB, so the scorer must quantise it
-    back to exactly the ids perception produced -- no drift across the topic."""
+    """The palette-RGB mask must re-quantise to exactly the ids perception produced."""
     rgb, _ = scene.render(0.0)
     ids = segment(rgb, space)
     assert (space.quantise(colourise(ids, space)) == ids).all()
 
 
 def test_a_rock_on_flat_ground_is_found(space):
-    """The one behavioural claim worth making: something with edges and shadow
-    on otherwise flat ground gets called an obstacle."""
+    """Edges and shadow on otherwise flat ground are called an obstacle."""
     import cv2
     rgb = np.full((160, 240, 3), 130, np.uint8)
     rgb[:20] = 210                                   # a thin sky band
@@ -68,9 +64,8 @@ def test_a_rock_on_flat_ground_is_found(space):
 
 
 def test_scene_rgb_and_labels_are_pixel_aligned(space, scene):
-    """The synthetic stand-in for BUILD_SPEC 5.1's alignment check: both images
-    come out of one call over one geometry, so obstacle pixels in the labels
-    are darker than the ground in the RGB at the same coordinates."""
+    """RGB and labels come from one geometry, so labelled obstacle pixels are
+    darker than the ground in the RGB at the same coordinates."""
     rgb, labels = scene.render(3.0)
     gt = space.quantise(labels)
     obstacle = gt == space.id_of["obstacle"]
@@ -81,7 +76,7 @@ def test_scene_rgb_and_labels_are_pixel_aligned(space, scene):
 
 
 def test_degradation_lowers_the_score(space, scene):
-    """The whole premise of the rig: make the image worse, watch IoU fall."""
+    """Degrading the image should lower IoU."""
     rgb, labels = scene.render(2.0)
     gt = space.quantise(labels)
 
@@ -94,8 +89,7 @@ def test_degradation_lowers_the_score(space, scene):
 
 
 def test_degradation_never_touches_geometry(scene):
-    """degrade() changes appearance only -- the labels it is scored against are
-    unchanged, which is the same boundary the catalog prompts hold X2 to."""
+    """degrade() changes appearance only; the labels are unchanged."""
     rgb, labels = scene.render(1.0)
     before = labels.copy()
     degrade(rgb, 1.0, "compound")

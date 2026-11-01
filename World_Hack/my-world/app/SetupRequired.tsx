@@ -5,11 +5,7 @@ const DASHBOARD_URL =
   "https://www.reactor.inc/dashboard/account?section=api-keys";
 const AUTH_DOCS_URL = "https://docs.reactor.inc/authentication";
 
-// Server Component shown when REACTOR_API_KEY is missing from the
-// environment. Pure markup - no hooks, no UI-lib components, so it
-// can stay server-rendered. Brand alignment comes from the font and
-// `text-brand` accent color exposed via Tailwind's @theme in
-// globals.css.
+// Server Component shown when REACTOR_API_KEY is missing.
 export function SetupRequired() {
   return (
     <div className="flex min-h-screen flex-col">

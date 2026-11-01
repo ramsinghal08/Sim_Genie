@@ -9,23 +9,11 @@ import { VideoPicker } from "./VideoPicker";
 import { WebcamSource } from "./WebcamSource";
 import { StreamSource } from "./StreamSource";
 
-// The Source panel. X2 has no explicit start command: generation begins on
-// its own once a non-empty prompt is set AND source frames are arriving, so
-// this panel only picks what streams into the `source` track.
-//
-// Every mode only *produces* a MediaStreamTrack; the controller's
-// useSourcePublisher is the single owner of the `source` slot, so mode
-// switches swap tracks on one publisher instead of racing two.
-//
-//   - Webcam mode renders the self-view here (WebcamSource) and hands its
-//     track up via onTrack. It stays mounted across the start transition
-//     so the camera keeps streaming while generation runs.
-//   - Video and image modes only pick media here; the stage plays/repeats
-//     it and hands the captured track up the same way. Image mode streams
-//     a still image as a constant feed — the drag-to-animate setup: prompt
-//     it, then steer the subject with the pointer.
-//   - Generating: the source is fixed for the run — Reset stops generation
-//     (and clears prompt, reference image, and pointer) to change it.
+// Source picker. X2 starts generating once a prompt is set and source frames
+// arrive. Each mode only produces a MediaStreamTrack; useSourcePublisher owns
+// the `source` slot. Webcam and stream stay mounted while generating so the
+// feed keeps flowing; video and image modes only pick media (the stage plays
+// it). The source is fixed for a run: Reset to change it.
 export function SourcePanel({
   generating,
   keepBacklog,
@@ -36,7 +24,7 @@ export function SourcePanel({
   onTrack,
 }: {
   generating: boolean;
-  /** The model-reported keep_backlog policy (from the state_update snapshot). */
+  /** Model-reported keep_backlog policy (from state_update). */
   keepBacklog: boolean;
   mode: X2SourceMode;
   onModeChange: (m: X2SourceMode) => void;
@@ -47,19 +35,11 @@ export function SourcePanel({
   const { reset, setKeepBacklog, status } = useX2();
   const ready = status === "ready";
 
-  // `keepBacklog` is the model's echoed policy (via state_update): false drops
-  // stale source frames so the edit tracks "now" (right for webcam); true
-  // consumes every frame in order for smoother motion at the cost of growing
-  // delay (right for clips and drag-to-animate). It's the source of truth, but
-  // it only arrives after a round trip and takes effect from the next block, so
-  // driving the switch straight off it leaves it dead for a beat after a click.
-  //
-  // `pending` holds the value the user just asked for and drives the switch
-  // immediately (optimistic). It clears when the echo confirms it, or after a
-  // timeout that falls back to the echoed truth — the command send is
-  // fire-and-forget (it never rejects, and a rejected command comes back as a
-  // separate command_error banner), so without the timeout a request the model
-  // never applied would leave the switch stuck showing a lie.
+  // `keepBacklog` is the model's echoed policy: false drops stale frames
+  // (low latency), true consumes every frame (smoother, growing delay).
+  // `pending` optimistically drives the switch until the echo confirms it, or
+  // a timeout falls back to the echoed value (a rejected command only surfaces
+  // as a separate command_error).
   const [pending, setPending] = useState<boolean | null>(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const displayKeepBacklog = pending ?? keepBacklog;
@@ -85,7 +65,7 @@ export function SourcePanel({
   };
 
   const handleModeChange = (m: X2SourceMode) => {
-    if (generating) return; // source is fixed once a run has started — reset to switch
+    if (generating) return;
     onModeChange(m);
   };
 
@@ -110,8 +90,6 @@ export function SourcePanel({
           <WebcamSource onTrack={onTrack} />
         </div>
       ) : mode === "stream" ? (
-        // Stays mounted while generating, like the webcam: the feed must keep
-        // flowing or X2 stops generating for want of source frames.
         <div className={generating ? "" : "mt-3"}>
           <StreamSource onTrack={onTrack} />
         </div>
@@ -159,7 +137,7 @@ export function SourcePanel({
             Reset
           </Button>
           <span className="text-xs text-zinc-500">
-            Editing — reset to change the source
+            Editing - reset to change the source
           </span>
         </div>
       ) : (

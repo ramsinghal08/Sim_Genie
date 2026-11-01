@@ -1,32 +1,20 @@
 #!/usr/bin/env python3
-"""
-scoring_node.py -- IoU(prediction, Unity ground truth).
+"""scoring_node.py: IoU(prediction, Unity ground truth).
 
-The only node in the graph that is allowed to see the label camera. Perception
-never subscribes to it; if it did, the whole experiment would be measuring
-nothing (BUILD_SPEC.md section 2).
+The only node allowed to read the label camera.
 
-TOPICS
-------
 Subscribes:
     /perception/mask     sensor_msgs/Image    prediction
-    /unity/labels        sensor_msgs/Image    ground truth (answer key)
+    /unity/labels        sensor_msgs/Image    ground truth
 Publishes:
-    /score/iou           std_msgs/Float32     mean IoU -- this drives the director
+    /score/iou           std_msgs/Float32     mean IoU (drives the director)
     /score/detail        std_msgs/String      JSON: per-class IoU, pixel counts
 
-RUN
----
     ros2 run mars_rig scoring_node
+    ros2 run mars_rig scoring_node --ros-args -p fake_ramp:=true   # no inputs
 
-    # director testing with no perception and no Unity (section 8, test 4):
-    ros2 run mars_rig scoring_node --ros-args -p fake_ramp:=true
-
-SANITY CHECK BEFORE TRUSTING ANY NUMBER
----------------------------------------
-Score the plain Unity render against its own labels. That is the CEILING. If it
-is low, perception or label alignment is broken and no world-model result means
-anything (BUILD_SPEC section 5.5).
+Before trusting any number, score the plain Unity render against its own
+labels (the ceiling). If it is low, perception or label alignment is broken.
 """
 
 import json
@@ -60,17 +48,13 @@ class ScoringNode(Node):
 
         self.declare_parameter("prediction_topic", "/perception/mask")
         self.declare_parameter("ground_truth_topic", "/unity/labels")
-        # Unity can publish labels as PNG CompressedImage instead of raw.
-        # PNG is lossless so classes survive exactly, and a flat-colour
-        # label image compresses enormously -- worth it if the raw topic is
-        # crowding the link. JPEG is never an option here: it bleeds colour
-        # across class boundaries and nothing downstream can undo it.
+        # Labels may arrive as PNG CompressedImage (lossless). JPEG is not
+        # acceptable: it bleeds colour across class boundaries.
         self.declare_parameter("ground_truth_compressed", False)
         self.declare_parameter("max_rate_hz", 10.0)
         self.declare_parameter("sync_slop_sec", 0.15)
         self.declare_parameter("sync_queue_size", 30)
-        # JSON so the whole palette can be swapped from a launch file once
-        # Unity's replacement shader colours are pinned down.
+        # JSON so the palette can be set from a launch file.
         self.declare_parameter("palette_json", "")
         self.declare_parameter("scored_classes", list(DEFAULT_SCORED))
         self.declare_parameter("colour_max_distance", 96.0)
@@ -113,8 +97,7 @@ class ScoringNode(Node):
                 f"Nothing here is measured.")
             return
 
-        # BEST_EFFORT in -- accepts frames from any publisher, reliable or
-        # not. See the QoS note in imgcodec.py.
+        # BEST_EFFORT in (see the QoS note in imgcodec.py).
         qos = image_sub_qos(depth=5)
         sub_pred = message_filters.Subscriber(
             self, Image, g("prediction_topic").value, qos_profile=qos)
@@ -127,9 +110,8 @@ class ScoringNode(Node):
             sub_gt = message_filters.Subscriber(
                 self, Image, gt_topic, qos_profile=qos)
 
-        # Unsynced comparison silently produces garbage: the prediction for one
-        # frame scored against another frame's labels still yields a plausible
-        # number, and nothing anywhere reports an error.
+        # Pair by header stamp: scoring against another frame's labels would
+        # still give a plausible number.
         self._sync = message_filters.ApproximateTimeSynchronizer(
             [sub_pred, sub_gt],
             int(g("sync_queue_size").value),
@@ -137,10 +119,8 @@ class ScoringNode(Node):
         )
         self._sync.registerCallback(self._on_pair)
 
-        # Count each side separately. "No score" has three different causes and
-        # they need three different fixes: no prediction, no ground truth, or
-        # both arriving but never pairing. Guessing between them from an empty
-        # /score/iou is exactly the hour this rig cannot afford.
+        # Count each side separately to diagnose a missing score: no
+        # prediction, no ground truth, or both arriving but never pairing.
         pred_type = "sensor_msgs/msg/Image"
         gt_type = ("sensor_msgs/msg/CompressedImage"
                    if bool(g("ground_truth_compressed").value) else pred_type)
@@ -160,16 +140,10 @@ class ScoringNode(Node):
             f"{self.space.scored_names}; max {self.max_rate} Hz")
 
     def _report_health(self):
-        """Say why there is no score, in the log AND on /score/detail.
+        """Explain a missing score, in the log and on /score/detail.
 
-        An empty score panel is ambiguous: it looks the same whether scoring is
-        broken, starting up, or structurally impossible because there is no
-        ground-truth topic in this graph at all. Publishing the reason means
-        the panel and the director can state it instead of showing a blank
-        number, and nothing downstream has to guess.
-
-        No /score/iou is published here on purpose. A placeholder score is a
-        number someone will eventually quote.
+        Never publishes /score/iou: a placeholder score could be mistaken for
+        a measurement.
         """
         if self._pairs:
             return
@@ -186,11 +160,8 @@ class ScoringNode(Node):
         elif not pred:
             reason = f"no prediction: nothing on {self._pred_topic}"
         else:
-            # ApproximateTimeSynchronizer matches on HEADER STAMPS, not arrival
-            # time. Two publishers that never share a clock -- one stamping
-            # with now(), one republishing a source stamp, one leaving it at
-            # zero -- produce a healthy stream on both topics and not one pair,
-            # and the synchroniser reports nothing at all.
+            # The synchroniser matches header stamps, so publishers on
+            # different clocks yield frames on both topics but no pairs.
             reason = (f"{pred} predictions and {gt} ground truth frames, but 0 "
                       f"pairs. ApproximateTimeSynchronizer matches header "
                       f"stamps, not arrival time: check both topics carry a "
@@ -222,7 +193,6 @@ class ScoringNode(Node):
         try:
             if isinstance(msg, CompressedImage):
                 if "jpeg" in (msg.format or "").lower() and what == "ground truth":
-                    # Loud, because the resulting IoU looks entirely plausible.
                     self.get_logger().error(
                         "ground truth arrived as JPEG. Lossy compression bleeds "
                         "colour across class boundaries -- republish the label "
@@ -239,8 +209,7 @@ class ScoringNode(Node):
 
     def _on_pair(self, pred_msg: Image, gt_msg: Image):
         now = time.monotonic()
-        # The director averages these; it does not need every frame, and at 24 fps
-        # the quantisation below is the most expensive thing in the graph.
+        # The director averages scores, and quantisation is the costliest step.
         if self.max_rate > 0 and (now - self._last_pub) < (1.0 / self.max_rate):
             return
 
@@ -250,8 +219,7 @@ class ScoringNode(Node):
             return
 
         if pred.shape != gt.shape:
-            # X2 picks its own output resolution (~832p bucket) which will not
-            # match Unity's render size, so perception's mask inherits that size.
+            # X2 picks its own output resolution, so the mask size differs.
             if not self._warned_resize:
                 self.get_logger().warn(
                     f"resizing prediction {pred.shape[1]}x{pred.shape[0]} -> "
@@ -292,12 +260,8 @@ def main():
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
-        # ros2 launch sends SIGINT, rclpy's signal handler shuts the context
-        # down, and spin() then raises. Calling shutdown() again from here
-        # raises RCLError("rcl_shutdown already called") from inside the
-        # finally block, so the node exits 1 and launch prints
-        # "process has died" for a perfectly normal Ctrl-C. Real crashes then
-        # look exactly like a clean exit, which is the actual cost.
+        # rclpy's SIGINT handler already shut the context down; a second
+        # shutdown() would raise RCLError.
         pass
     finally:
         node.destroy_node()

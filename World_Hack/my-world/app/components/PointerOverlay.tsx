@@ -3,18 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useX2 } from "@reactor-models/x2";
 
-// Model docs: the pointer is sampled once per generated block, so ~30 Hz is
-// plenty. Sends are throttled with a trailing timer so the last position of a
-// fast gesture always lands.
+// The model samples the pointer once per block, so ~30 Hz suffices. Sends are
+// throttled with a trailing timer so the final position always lands.
 const SEND_INTERVAL_MS = 33;
 
-// Drag-to-steer overlay for the edited output pane. While the user holds the
-// pointer down, its position is streamed to the model as `set_pointer`
-// (x, y, active) and the edited subject follows the drag; releasing sends
-// active=false. Coordinates are normalized to the *output frame*, which the
-// pane letterboxes (object-fit: contain) — outputAspect (from
-// generation_started's width/height) is used to map from the pane's box to
-// the visible video content, so 0..1 means the frame, not the letterbox.
+// Drag-to-steer overlay for the output pane. While the pointer is down, its
+// position streams to the model as `set_pointer` (x, y, active); release sends
+// active=false. Coordinates are normalized to the output frame, using
+// outputAspect to account for object-fit: contain letterboxing.
 export function PointerOverlay({
   outputAspect,
   enabled,
@@ -40,8 +36,7 @@ export function PointerOverlay({
     };
   }, []);
 
-  // End a drag that's still active on unmount/disable so the model doesn't
-  // keep steering toward a stale point.
+  // End a drag still active on unmount/disable.
   useEffect(() => {
     if (active) return;
     if (draggingRef.current) {
@@ -51,10 +46,8 @@ export function PointerOverlay({
     }
   }, [active, setPointer]);
 
-  // Map a pointer event to output-frame coordinates (0,0 = top left, clamped
-  // to 0..1) plus the dot's position within the pane, accounting for the
-  // letterbox object-fit: contain introduces when the pane and the output
-  // frame have different aspect ratios.
+  // Map a pointer event to output-frame coordinates (0..1, clamped) plus the
+  // dot position within the pane, accounting for letterboxing.
   function locate(e: React.PointerEvent): {
     x: number;
     y: number;
@@ -162,10 +155,7 @@ export function PointerOverlay({
         (active ? "cursor-crosshair" : "pointer-events-none")
       }
     >
-      {/* The drag marker: a press ripple (one-shot — the marker mounts on
-          pointerdown and unmounts on release, so the animation runs once per
-          drag), a brand-glow ring that follows the gesture, and a center dot
-          on the exact coordinate being streamed. */}
+      {/* Drag marker: press ripple, glow ring and center dot. */}
       {dot && (
         <span
           className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"

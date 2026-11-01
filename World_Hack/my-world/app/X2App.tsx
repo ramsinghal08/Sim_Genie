@@ -1,22 +1,8 @@
 "use client";
 
-// XMAX X2 — REFERENCE FRONTEND
-//
-// X2 is a real-time streaming video-to-video editing model: it edits
-// whatever arrives on the `source` track, live, steered by a text
-// prompt you can swap mid-stream, an optional reference image, and a
-// drag-to-steer pointer on the output.
-//
-// The typed client comes from the published `@reactor-models/x2`
-// package. It bakes the model name and tracks into <X2Provider> and
-// exposes typed commands and per-message hooks, so the app reads the
-// same as the sibling examples:
-//
-//   <X2Provider getJwt={fetchToken} />       — session lifecycle
-//   useX2()                                  — status + typed commands
-//   setPrompt({ prompt })                    — model commands
-//   useX2StateUpdate((msg) => …)             — model → client messages
-//   <X2MainVideoView />                      — the live output
+// Reference frontend for the X2 real-time video-to-video editing model.
+// Edits the `source` track live, steered by a swappable text prompt, an
+// optional reference image, and a drag-to-steer pointer on the output.
 import { useEffect, useRef, useState } from "react";
 import {
   X2Provider,
@@ -45,10 +31,8 @@ import { useSourcePublisher } from "./components/useSourcePublisher";
 import { useRosOutput } from "./components/useRosOutput";
 import { REACTOR_API_URL } from "@/app/lib/config";
 
-// JWT resolver passed to <X2Provider getJwt>. The SDK calls it on every
-// Reactor API request, so it must be a resolver, not a static string. The
-// /api/reactor/token route returns the JWT with a Cache-Control header, so the
-// browser caches it until it actually expires.
+// JWT resolver for <X2Provider getJwt>. The SDK calls it on every Reactor API
+// request; the token route sets Cache-Control so the browser caches the JWT.
 async function fetchToken(): Promise<string> {
   const r = await fetch("/api/reactor/token");
   if (!r.ok) {
@@ -59,8 +43,7 @@ async function fetchToken(): Promise<string> {
   return jwt;
 }
 
-// No `autoConnect`: the user clicks Connect so they see the
-// disconnected -> connecting -> waiting -> ready state machine first-hand.
+// No `autoConnect`: the user connects explicitly.
 export function X2App() {
   return (
     <X2Provider
@@ -75,42 +58,28 @@ export function X2App() {
 
 const BANNER_TTL_MS = 6000;
 
-// The client tree. The model is the source of truth: it broadcasts a full
-// `state_update` snapshot on connect and after every observable change,
-// reduced into X2UiState by lib/state.ts. generation_stopped (reset
-// bookkeeping), reference_image_accepted (decoded dimensions), and
-// command_error (transient banner) are handled as discrete events on top.
+// The model broadcasts a full `state_update` snapshot on connect and after each
+// change, reduced into X2UiState by lib/state.ts. generation_stopped,
+// reference_image_accepted and command_error are handled as discrete events.
 function Workspace() {
   const { status } = useX2();
 
   const [ui, setUi] = useState<X2UiState>(DEFAULT_UI_STATE);
-  // Webcam is the default source; "video" streams a pre-recorded clip and
-  // "image" repeats a still image as a constant feed (drag-to-animate). All
-  // three feed the same `source` track.
+  // All source modes feed the same `source` track.
   const [mode, setMode] = useState<X2SourceMode>("webcam");
 
-  // Whichever source is active (webcam self-view in the panel, playing clip
-  // or repeated canvas frame in the stage) produces a track and hands it
-  // here; useSourcePublisher is the single owner of the `source` slot and
-  // reconciles the wire to the latest track, so mode switches can't race
-  // two publishers.
+  // The active source hands its track here; useSourcePublisher is the single
+  // owner of the `source` slot, so mode switches can't race two publishers.
   const [sourceTrack, setSourceTrack] = useState<MediaStreamTrack | null>(null);
   const publishError = useSourcePublisher(sourceTrack);
 
-  // The return leg: the model's output published back onto
-  // /world_model/image_raw for the perception rig, and /world_model/prompt
-  // forwarded into the model.
-  //
-  // OFF by default. The stream source needs no ROS client at all, so the
-  // simple path -- watch X2 edit the Unity feed, prompt it by hand -- opens no
-  // websocket and publishes nothing. Turn this on to put the page back in the
-  // middle of the rig loop.
+  // Return leg: publishes model output to /world_model/image_raw and forwards
+  // /world_model/prompt into the model. Off by default (no websocket opened).
   const [rosLoop, setRosLoop] = useState(false);
   const rosOut = useRosOutput({ enabled: rosLoop });
 
-  // URLs of the media selected in "video" / "image" mode (object URL for a
-  // local file, or a preset's path). Owned here so the stage's input pane can
-  // stream them; the setters revoke a replaced object URL.
+  // Selected video/image URLs (object URL or preset path); setters revoke
+  // replaced object URLs.
   const [videoUrl, setVideoUrlState] = useState<string | null>(null);
   const setVideoUrl = (url: string | null) =>
     setVideoUrlState((prev) => {
@@ -153,19 +122,12 @@ function Workspace() {
     );
   };
 
-  // Bumped on a user reset and used as a React key on children that hold
-  // local draft state (prompt draft, reference preview), remounting them in
-  // step with the model's reset — which clears prompt, reference image, and
-  // pointer server-side.
+  // Bumped on user reset; keys children holding draft state so they remount.
   const [resetNonce, setResetNonce] = useState(0);
 
-  // While generation is stopped, black out the stage (the WebRTC view would
-  // otherwise freeze on the last transformed frame). Lifts when generation
-  // runs again.
+  // Blank the stage while generation is stopped (the view would freeze).
   const [stageCleared, setStageCleared] = useState(false);
 
-  // The model's snapshot is the source of truth: only the typed
-  // `state_update` message feeds the reducer (see lib/state.ts).
   useX2StateUpdate((msg) => {
     if (msg.generating) setStageCleared(false);
     setUi((s) => reduce(s, msg));
@@ -173,9 +135,7 @@ function Workspace() {
 
   useX2GenerationStopped((msg) => {
     setStageCleared(true);
-    // A `reference_image_changed` stop is an automatic restart (a fresh
-    // generation_started follows immediately) — keep drafts. Only a user
-    // reset remounts the draft-holding children.
+    // `reference_image_changed` stops restart automatically; keep drafts.
     if (msg.reason === "reset") setResetNonce((n) => n + 1);
   });
 
@@ -190,7 +150,7 @@ function Workspace() {
     showCommandError(`${msg.command}: ${msg.reason}`);
   });
 
-  // Reset local state on full disconnect so a reconnect starts clean.
+  // Reset local state on disconnect.
   useEffect(() => {
     if (status === "disconnected") {
       setUi(DEFAULT_UI_STATE);
@@ -201,7 +161,6 @@ function Workspace() {
     }
   }, [status]);
 
-  // Clean up the banner auto-dismiss timer on unmount.
   useEffect(() => {
     return () => {
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
@@ -211,12 +170,8 @@ function Workspace() {
   return (
     <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
       <Header />
-      {/* The stage comes first in the DOM: on mobile it is pinned (sticky)
-          on top so the model output stays visible while the controls scroll
-          beneath it, and the mobile padding lives on the children, not
-          <main>, so it can sit flush against the viewport edge with a solid
-          backdrop. lg:flex-row-reverse restores the desktop sidebar-left /
-          stage-right split. */}
+      {/* Stage first in the DOM so it can be sticky on mobile;
+          lg:flex-row-reverse puts the sidebar on the left on desktop. */}
       <main className="flex flex-1 flex-col lg:min-h-0 lg:flex-row-reverse lg:gap-6 lg:p-6">
         <section className="flex flex-col gap-4 max-lg:sticky max-lg:top-0 max-lg:z-10 max-lg:bg-zinc-950/95 max-lg:p-4 max-lg:pb-3 max-lg:backdrop-blur-sm lg:min-h-0 lg:min-w-0 lg:flex-1 lg:overflow-hidden">
           <Stage
@@ -253,7 +208,7 @@ function Workspace() {
                 publish back to ROS
                 {rosLoop && (
                   <>
-                    {" — "}
+                    {" - "}
                     {rosOut.publishing
                       ? `/world_model/image_raw · ${rosOut.published} frames${
                           rosOut.size ? ` · ${rosOut.size}` : ""

@@ -6,39 +6,16 @@
 <title>Sim Genie · Control Panel</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e8703a'/%3E%3Ccircle cx='11' cy='12' r='3' fill='%23b4552a'/%3E%3Ccircle cx='21' cy='20' r='4' fill='%23b4552a'/%3E%3C/svg%3E">
 <!--
-  Control panel. Single file, plain JS, no framework, no CDN -- it has to open
-  from a laptop with no network at 18:00 on demo night.
+  Control panel. Single file, plain JS, no CDN, so it opens offline. Talks to
+  rosbridge_websocket directly (ros2 launch rosbridge_server rosbridge_websocket_launch.xml).
 
-  Talks to rosbridge_websocket directly over its JSON protocol:
-      ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+  Image transport is selectable:
+    web_video_server  <img> pointed at an MJPEG stream (ros2 run web_video_server web_video_server)
+    rosbridge raw     subscribe to the Image topic and paint pixels into a <canvas>
 
-  IMAGE TRANSPORT -- BUILD_SPEC 9.5 is still open, so BOTH are here and the
-  choice is a radio button rather than a decision baked into the file:
-
-    web_video_server  an <img> pointed at an MJPEG stream. Lower latency, no
-                      rosbridge bandwidth, needs the extra node running:
-                          ros2 run web_video_server web_video_server
-    rosbridge raw     subscribe to the Image topic and paint the pixels into a
-                      <canvas>. Nothing else to install, but every frame
-                      crosses the websocket as JSON.
-
-  BOTH READ RAW sensor_msgs/Image. Nothing in this graph publishes a
-  `<topic>/compressed` companion, and asking for one is the quietest failure in
-  the rig: web_video_server stays happily subscribed to a topic that does not
-  exist, rosbridge reports no error, and the pane simply never draws. If a
-  compressed transport is ever added, turn it on in BOTH places -- the node
-  that publishes it and applyTransport() below -- never in only one.
-
-  Pick one, tell the team, and delete the other before the demo if you like.
-
-  NOTE ON THIS FILE'S LAYOUT: this used to be panel/index.html. It moved to
-  control.html so panel/index.html could become a proper landing page (see
-  panel/index.html -- "Sim Genie"). Nothing about the wiring below changed in
-  that move: same topics, same connect/subscribe logic, same image decode,
-  same diagnosis. The scoring card (/score/iou, /score/detail) was removed
-  because scoring is not wired up yet in this deployment -- put it back by
-  reintroducing the card markup and the onScore/onDetail handlers this file
-  used to have (see git history) once it is.
+  Both read raw sensor_msgs/Image; nothing in the graph publishes
+  `<topic>/compressed`. If a compressed transport is added, enable it both in
+  the publisher and in applyTransport().
 -->
 <style>
   :root {
@@ -107,10 +84,7 @@
   @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
   main > div:first-child { min-height:0; min-width:0; }
 
-  /* 1. Unity  2. X2 repaint  -- together, up top.
-     3. segmentation  +  the condition/prompt card -- together, underneath.
-     One 2x2 grid so all four fit the same fixed-height column without
-     forcing a page scroll. */
+  /* 2x2 grid: Unity and X2 repaint on top; segmentation and the condition card below. */
   .panes {
     display:grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr);
     gap:12px; height:100%;
@@ -132,13 +106,7 @@
   .pane img, .pane canvas { width:100%; height:100%; object-fit:contain; display:block; }
   .pane .frame .none { color:var(--dim); font-size:11px; text-align:center; padding:0 10px; line-height:1.6; word-break:break-all; white-space:pre-wrap; }
 
-  /* Unity dock -- a reserved, purely visual slot in the sidebar. Nothing here
-     is wired to ROS; it exists so the Unity Play-mode window has an obvious,
-     blank place to be dragged over while the rig runs. No label inside it on
-     purpose -- it gets covered the moment a window is parked on it, so
-     anything written here would only ever be seen empty. `flex:1` lets it
-     soak up whatever vertical space the director/bridge cards below it don't
-     need, so the sidebar's height is never wasted. */
+  /* Unity dock: a blank placeholder for the Unity Play-mode window; fills spare sidebar height. */
   .unity-dock {
     flex:1; min-height:260px; border:1.5px dashed var(--line); border-radius:var(--radius);
     background: repeating-linear-gradient(135deg, rgba(255,255,255,.015) 0 12px, transparent 12px 24px), var(--panel);
@@ -148,9 +116,7 @@
     background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
     padding:12px 14px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
   }
-  /* The condition card sits as the 4th tile in the 2x2 grid (next to
-     segmentation) -- it needs to fit that cell's height exactly rather than
-     dictate its own, so the textarea flexes instead of the card overflowing. */
+  /* The condition card is the 4th grid tile; the textarea flexes to fit the cell. */
   .panes .card { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
   .panes .card textarea { flex:1 1 auto; min-height:0; height:auto; }
   .panes .card .row:last-child { flex:0 0 auto; }
@@ -220,15 +186,15 @@
       </div>
 
       <div class="card">
-        <h3>Condition — published verbatim to /world_model/prompt</h3>
+        <h3>Condition - published verbatim to /world_model/prompt</h3>
         <div class="row" style="margin-bottom:8px">
-          <select id="preset" class="grow"><option value="">— load a catalog to pick a condition —</option></select>
+          <select id="preset" class="grow"><option value="">- load a catalog to pick a condition -</option></select>
           <input type="file" id="catalog" accept=".json" style="max-width:180px">
         </div>
-        <textarea id="prompt" placeholder="地面材质变为... — or paste any condition. Sent exactly as typed; nothing downstream edits it."></textarea>
+        <textarea id="prompt" placeholder="地面材质变为... - or paste any condition. Sent exactly as typed; nothing downstream edits it."></textarea>
         <div class="row" style="margin-top:8px">
           <button id="send" class="primary">send condition</button>
-          <span class="hint grow" id="promptHint">X2 applies this at the next block boundary — expect a few seconds before it takes visible effect.</span>
+          <span class="hint grow" id="promptHint">X2 applies this at the next block boundary - expect a few seconds before it takes visible effect.</span>
         </div>
       </div>
     </div>
@@ -290,9 +256,7 @@ function connect() {
     subscribe(TOPICS.status);
     subscribe(TOPICS.state);
     send({ op: "advertise", topic: TOPICS.prompt.topic, type: TOPICS.prompt.type });
-    // Cheap, once per connect, and it turns "blank pane" into "you meant
-    // /panther/camera_left/image_raw". Silently unavailable if rosapi is not
-    // running -- the service response comes back with result:false.
+    // Lists existing Image topics for the pane diagnosis (result:false if rosapi is absent).
     callService("/rosapi/topics_for_type",
                 { type: "sensor_msgs/msg/Image" },
                 (v) => { imageTopicsSeen = (v && v.topics) || []; });
@@ -322,17 +286,13 @@ function route(topic, msg) {
 }
 
 function rowsToHtml(rows) {
-  // A row with no value is a banner, not a setting: span both columns so it
-  // does not get squeezed into the narrow label cell and wrap mid-phrase.
+  // A row with no value is a banner: span both columns.
   return rows.map(r => r[1] === "" || r[1] === undefined
     ? `<tr><td colspan="2">${r[0]}</td></tr>`
     : `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("");
 }
 
-// A JSON payload that will not parse is otherwise perfectly silent -- the
-// handler returns and the card just stops updating. That is how a NaN in a
-// status message (json.dumps writes a bare `NaN`, which JSON.parse rejects)
-// froze the director table on its last good value with nothing to see.
+// Surface unparseable payloads (e.g. a bare NaN from json.dumps) instead of silently freezing the card.
 function parsePayload(json, what) {
   try {
     return JSON.parse(json);
@@ -347,11 +307,11 @@ function onDirector(json) {
   if (!d) return;
   const rows = [
     ["mode", d.mode], ["phase", d.phase],
-    ["condition", d.current_name ? `${d.current_id} · ${d.current_name}` : "—"],
-    ["difficulty", d.difficulty ?? "—"],
+    ["condition", d.current_name ? `${d.current_id} · ${d.current_name}` : "-"],
+    ["difficulty", d.difficulty ?? "-"],
     ["elapsed", (d.elapsed ?? 0) + "s"],
     ["progress", `${d.completed}/${d.total}`],
-    ["last mean IoU", d.last_iou === null || d.last_iou === undefined ? "—" : Number(d.last_iou).toFixed(3)],
+    ["last mean IoU", d.last_iou === null || d.last_iou === undefined ? "-" : Number(d.last_iou).toFixed(3)],
   ];
   $("director").innerHTML = rowsToHtml(rows);
 }
@@ -360,7 +320,7 @@ function onState(json) {
   const d = parsePayload(json, "/world_model/state");
   if (!d) return;
   const rows = [];
-  if (d.mock) rows.push(["<span class='bad-text'>MOCK — output is not from X2</span>", ""]);
+  if (d.mock) rows.push(["<span class='bad-text'>MOCK - output is not from X2</span>", ""]);
   rows.push(["generating", d.generating ? "yes" : "no"]);
   if (d.width) rows.push(["output", `${d.width}×${d.height}`]);
   if (d.keep_backlog !== undefined) rows.push(["keep_backlog", String(d.keep_backlog)]);
@@ -369,16 +329,9 @@ function onState(json) {
   $("state").innerHTML = rowsToHtml(rows);
 }
 
-// ---------- images: the two BUILD_SPEC 9.5 options ----------
+// ---------- images ----------
 
-// Pane 1 is the only one bound to a topic Unity names itself -- panes 2 and 3
-// are rig-internal (/world_model/image_raw, /perception/mask) and never
-// change no matter what Unity calls its camera. Hardcoding pane 1's default
-// is exactly the failure this whole project keeps losing evenings to: Unity
-// publishes under its own name (e.g. /panther/camera_left/image_raw), the
-// panel subscribes to /unity/camera/image_raw, and the pane sits blank with
-// nothing on screen saying why. The field defaults to the common name but is
-// editable, same as the web_video_server base URL next to it.
+// Only pane 1 depends on Unity's camera topic name, so it is editable; panes 2 and 3 are fixed.
 function paneTopics() {
   const unity = $("unityTopic").value.trim() || TOPICS.unity.topic;
   return [unity, TOPICS.x2.topic, TOPICS.mask.topic];
@@ -386,9 +339,7 @@ function paneTopics() {
 let PANE_TOPICS = paneTopics();
 let rawSlots = {};
 
-//: encoding -> bytes per pixel, the same table imgcodec.py moves. Anything
-//: else is refused rather than guessed: a wrong guess paints plausible
-//: garbage, which is worse than an empty pane.
+// encoding -> channels per pixel (same table as imgcodec.py); others are refused.
 const CHANNELS = {
   mono8: 1, "8UC1": 1,
   rgb8: 3, bgr8: 3, "8UC3": 3,
@@ -413,8 +364,7 @@ function canvasFor(i, w, h) {
   return c;
 }
 
-// Say it in the pane, once. A bad frame at 10 Hz would otherwise either
-// rewrite the DOM 10 times a second or -- worse -- say nothing at all.
+// Report a pane problem once rather than rewriting the DOM every frame.
 const paneNoted = {};
 const paneTotal = [0, 0, 0];
 function paneNote(i, text) {
@@ -441,9 +391,7 @@ function applyTransport() {
   PANE_TOPICS.forEach((t, i) => {
     delete paneNoted[i];
     paneTotal[i] = 0;
-    // Name the topic. A pane that says "no frames" sends you to the browser
-    // console; a pane that says "waiting for /unity/camera/image_raw" sends
-    // you to `ros2 topic list`, which is where the answer actually is.
+    // Name the topic so a blank pane points at `ros2 topic list`.
     slotFrame(i).innerHTML =
       `<span class="none">waiting for<br>${t}</span>`;
     $("hz" + i).textContent = "";
@@ -452,34 +400,19 @@ function applyTransport() {
   if (mode === "wvs") {
     const base = $("wvs").value.replace(/\/$/, "");
     PANE_TOPICS.forEach((t, i) => {
-      // default_transport=raw is web_video_server's own default, and it is
-      // spelled out because it is the setting that decides whether these
-      // panes work: with `compressed` it subscribes to `<topic>/compressed`,
-      // which nothing in this graph publishes, and the pane stays blank with
-      // no error anywhere. See the transport note at the top of this file.
+      // default_transport=raw: `compressed` would subscribe to a topic nobody publishes.
       const img = imgFor(i);
-      // An MJPEG <img> that never receives data does not error; one that
-      // cannot reach the server does. Worth separating -- "wrong port" and
-      // "no publisher" look identical otherwise.
+      // onerror fires only when the server is unreachable, not when there is no publisher.
       img.onerror = () => paneNote(i, `cannot reach web_video_server at ${base}`);
       img.onload = () => { paneTotal[i]++; };
-      // The topic goes in RAW, not percent-encoded. web_video_server does not
-      // URL-decode its query parameters: encodeURIComponent turns
-      // /perception/mask into %2Fperception%2Fmask, which reaches rclcpp as a
-      // literal topic name and is rejected --
-      //     topic name must not contain characters other than alphanumerics,
-      //     '_', '~', '{', or '}': '%2Fperception%2Fmask'
-      // -- so the stream 500s and every MJPEG pane stays black. ROS topic
-      // names are already restricted to characters that are safe in a query
-      // value, so there is nothing to escape.
+      // Topic is not percent-encoded: web_video_server does not URL-decode query parameters.
       img.src = `${base}/stream?topic=${t}`
               + `&type=mjpeg&quality=70&default_transport=raw`;
     });
   } else {
     PANE_TOPICS.forEach((t, i) => {
       rawSlots[t] = i;
-      // Throttled: raw frames are big, and the panes are 400px wide. The
-      // rig's own publishers are capped well below 24 Hz anyway.
+      // Throttled: raw frames are large.
       subscribe({ topic: t, type: "sensor_msgs/msg/Image" }, 100);
     });
   }
@@ -536,17 +469,9 @@ function drawRaw(slot, msg) {
 }
 
 // ---------- "why is this pane empty?" ----------
-//
-// The single most expensive failure in this rig is a topic name that nobody
-// publishes: the subscription is silent, rosbridge reports no error, and the
-// pane is blank in exactly the same way as a browser bug. rosapi (which
-// rosbridge_server launches alongside itself) can answer the question
-// directly, so the pane says which of the three it is:
-//
-//   nothing publishes <topic>      -> the name is wrong. The Image topics that
-//                                     DO exist are listed; it is one of them.
-//   N publishers, no frames        -> QoS, or a stalled publisher.
-//   cannot reach web_video_server  -> MJPEG mode, server down or wrong port.
+// rosapi tells apart: no publisher (wrong topic name; existing Image topics are
+// listed), publishers but no frames (QoS or stalled), and an unreachable
+// web_video_server (MJPEG mode).
 
 let svcSeq = 0;
 const svcPending = {};
@@ -568,8 +493,7 @@ function onServiceResponse(m) {
 
 function scheduleDiagnosis() {
   if (diagnoseTimer) clearTimeout(diagnoseTimer);
-  // Long enough that a healthy graph has drawn something first -- a hint that
-  // fires before the first frame would cry wolf on every connect.
+  // Delay so a healthy graph has drawn a frame first.
   diagnoseTimer = setTimeout(diagnosePanes, 5000);
 }
 
@@ -614,9 +538,9 @@ $("send").onclick = () => {
   const text = $("prompt").value.trim();
   if (!text) return;
   if (text.length > 1000) {
-    $("promptHint").innerHTML = `<span class="bad-text">${text.length} chars — X2 caps at 1000 and the bridge will truncate.</span>`;
+    $("promptHint").innerHTML = `<span class="bad-text">${text.length} chars - X2 caps at 1000 and the bridge will truncate.</span>`;
   }
-  // Verbatim. A single changed word invalidates the comparison (BUILD_SPEC 5.3).
+  // Sent verbatim.
   send({ op: "publish", topic: TOPICS.prompt.topic, msg: { data: text } });
   setStatus("sent condition (" + text.length + " chars)", true);
 };
@@ -628,37 +552,22 @@ $("catalog").onchange = (ev) => {
   reader.onload = () => {
     let cat; try { cat = JSON.parse(reader.result); } catch (e) { return; }
     const sel = $("preset");
-    sel.innerHTML = '<option value="">— pick a condition —</option>';
+    sel.innerHTML = '<option value="">- pick a condition -</option>';
     (cat.prompts || []).forEach(p => {
       const o = document.createElement("option");
       o.value = p.zh || p.en;
       o.textContent = `${p.id} · ${p.name} (diff ${p.difficulty})`;
       sel.appendChild(o);
     });
-    setStatus(`catalog loaded — ${(cat.prompts || []).length} conditions`, true);
+    setStatus(`catalog loaded - ${(cat.prompts || []).length} conditions`, true);
   };
   reader.readAsText(file);
 };
 
-// ---------- am I the current file? ----------
-//
-// A browser tab shows the OLD page while staying connected to a live
-// rosbridge: the tables keep updating from real messages and every symptom you
-// just fixed is still on screen, with nothing to say the page is stale.
-//
-// Serving `no-store` is not enough on its own. With no explicit caching
-// directives -- which is what `python -m http.server` sends -- a browser
-// applies HEURISTIC freshness from Last-Modified and will answer a navigation
-// straight from cache WITHOUT ASKING THE SERVER. The new no-store header is
-// then never seen, because no request is made. That is how a page four commits
-// old survived a server restart, a pull and a reload.
-//
-// So the page checks itself: HEAD its own URL with cache:"no-store" (which
-// does force a request), compare the server's Last-Modified against this DOM's
-// own, and reload once through a cache-busting URL if the file on disk is
-// newer. Once that lands, the no-store header keeps it fresh.
-$("stamp").textContent = "page " + document.lastModified;
-
+// ---------- stale-page self-check ----------
+// HEAD this page with cache:"no-store", compare Last-Modified to this DOM's,
+// and reload once through a cache-busting URL if the file on disk is newer.
+// (no-store alone cannot help a tab that never re-requests the page.)
 async function checkPageFreshness(mineOverride) {
   let served;
   try {
@@ -674,16 +583,14 @@ async function checkPageFreshness(mineOverride) {
     ? mineOverride : new Date(document.lastModified).getTime();
   if (!Number.isFinite(served) || !Number.isFinite(mine)) return null;
 
-  // A second of slack: Last-Modified has one-second resolution and
-  // document.lastModified is parsed from a locale string.
+  // Slack for Last-Modified's one-second resolution.
   if (served - mine < 2000) return "current";
 
-  // Reload at most once per server version, so a clock skew or a parsing
-  // quirk cannot put the page in a refresh loop.
+  // Reload at most once per server version to avoid a refresh loop.
   const key = "panel-reloaded-" + served;
   try {
     if (sessionStorage.getItem(key)) {
-      $("stamp").textContent = "page " + document.lastModified + " — STALE";
+      $("stamp").textContent = "page " + document.lastModified + " - STALE";
       $("stamp").className = "bad-text";
       return "stale";
     }

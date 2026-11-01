@@ -1,8 +1,6 @@
 import { cn, EYEBROW, FOCUS_RING, PANEL } from "./ui";
 
-// Surfaces command_error messages from the model. The shell owns the
-// message subscription and the auto-dismiss TTL; this component is purely
-// presentational.
+// Presentational banner for command_error messages.
 export function CommandError({
   message,
   onDismiss,

@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
-"""
-perception.py -- the segmentation itself. Pure numpy/cv2, no rclpy.
+"""perception.py: the segmentation step (numpy/cv2, no rclpy).
 
-WHAT THIS IS, AND IS NOT
-------------------------
-`baseline_cv` is a classical traversability segmenter: horizon split, then
-texture and shadow within the ground band. It exists so the rig can be wired
-end to end and scored today. It is a STAND-IN.
-
-BUILD_SPEC.md section 9.2 -- our MRT stack or an off-the-shelf model
-(SegFormer-B0 / DeepLabV3-MobileNetV3) -- is still open and is not decided
-here. `segment()` dispatches on a method name so the answer drops in as one
-more branch without touching the node, the topics, or the scorer.
-
-It is not a weak placeholder by accident, either: a classical segmenter
-degrades under exactly the conditions this rig manufactures -- washed-out
-contrast, low sun, flattened texture -- so it produces a real failure curve
-rather than a flat line, which is what a baseline is for.
+`baseline_cv` is a classical traversability segmenter (horizon split, then
+texture and shadow within the ground band) that stands in for a learned model
+such as SegFormer-B0 or DeepLabV3-MobileNetV3. `segment()` dispatches on a
+method name so another model can be added as one more branch. Being classical,
+it degrades under washed-out contrast, low sun and flattened texture, which
+gives a meaningful baseline failure curve.
 """
 
 from __future__ import annotations
@@ -38,7 +28,7 @@ def segment(rgb: np.ndarray, space: LabelSpace, method: str = "baseline_cv",
     if method == "baseline_cv":
         return baseline_cv(rgb, space, **kw)
     if method == "passthrough":
-        # For rigging tests: treat the input as if it were already a label map.
+        # Treat the input as an existing label map (for wiring tests).
         return space.quantise(rgb)
     raise ValueError(
         f"unknown perception method {method!r}; known: baseline_cv, passthrough"
@@ -58,22 +48,17 @@ def baseline_cv(
 ) -> np.ndarray:
     """Horizon split, then texture + shadow inside the ground band.
 
-    horizon_frac    fraction of the frame from the top taken as sky. The camera
-                    is tilted down so ground fills ~75% of frame (section 5.1),
-                    hence 0.25. Re-tune if the Unity camera pitch changes.
+    horizon_frac    fraction of the frame from the top taken as sky (ground
+                    fills ~75% with the current camera pitch; re-tune if it
+                    changes).
     texture_thresh  local standard deviation above which ground is called an
-                    obstacle. Rocks have edges and cast shadows; regolith does
-                    not. This is the knob dust washes out.
+                    obstacle.
     shadow_offset   how far below the local mean a pixel must fall to count as
                     a shadow, in grey levels.
     close_ksize     morphological closing applied before filling, to join an
                     edge response broken by a highlight.
-    fill_blobs      fill each detected outline. A local-variance detector fires
-                    on a rock's EDGES and not on its flat interior, so without
-                    this it reports rings and misses most of the object it
-                    found -- measured at 77% of obstacle pixels missed on the
-                    synthetic scene. Filling is what turns an edge detector
-                    into a segmenter.
+    fill_blobs      fill each detected outline; the variance detector fires on
+                    rock edges, not flat interiors.
     """
     if not CV2_AVAILABLE:
         raise RuntimeError("baseline_cv needs cv2 -- pip install opencv-python")
@@ -97,9 +82,7 @@ def baseline_cv(
 
     k = int(texture_ksize) | 1  # cv2 box filters want an odd kernel
 
-    # Local standard deviation via E[x^2] - E[x]^2. One pass of two box filters
-    # is far cheaper than a sliding-window std and is what makes this run at
-    # frame rate on CPU.
+    # Local std via E[x^2] - E[x]^2 (two box filters, cheap on CPU).
     f = ground.astype(np.float32)
     mean = cv2.blur(f, (k, k))
     mean_sq = cv2.blur(f * f, (k, k))
@@ -118,10 +101,7 @@ def baseline_cv(
     if fill_blobs:
         obstacle = _fill_outlines(obstacle)
 
-    # Speckle from sensor noise is not a rock. Dropping it matters for IoU:
-    # thousands of stray single pixels inflate the predicted obstacle area and
-    # depress the score for a reason that has nothing to do with the condition
-    # under test.
+    # Drop noise speckle so it does not inflate the predicted obstacle area.
     obstacle = _drop_small_blobs(obstacle, int(min_blob_px))
 
     band = ids[horizon:, :]
@@ -156,6 +136,5 @@ def _drop_small_blobs(mask: np.ndarray, min_px: int) -> np.ndarray:
 
 
 def colourise(ids: np.ndarray, space: LabelSpace) -> np.ndarray:
-    """Class ids -> the palette's RGB, so the mask is viewable and re-quantises
-    back to exactly these ids in the scorer."""
+    """Class ids -> palette RGB (viewable, and re-quantises to the same ids)."""
     return space.colours[ids].astype(np.uint8)

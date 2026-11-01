@@ -1,12 +1,8 @@
 """Logging at a runtime-chosen severity, without tripping rclpy.
 
-rclpy keys its logging context on CallerId(function_name, file_path,
-line_number, last_index), taken from the first frame outside rclpy, and raises
-`ValueError: Logger severity cannot be changed between calls.` if one call site
-is ever used at two severities. That killed the director on its first warning.
-
-These tests do not need rclpy: the invariant is a property of our own source,
-and it is checkable directly.
+rclpy raises `ValueError: Logger severity cannot be changed between calls.` if
+one call site (function, file, line) is used at two severities. The invariant
+is a property of our own source, so these tests need no rclpy.
 """
 
 import inspect
@@ -17,11 +13,7 @@ from mars_rig.roslog import emit
 
 
 class RecordingLogger:
-    """Records the severity AND the line in roslog.py that called it.
-
-    The line number is the whole point: it is the field rclpy uses to tell one
-    logging call site from another.
-    """
+    """Records each severity and the roslog.py line that called it."""
 
     def __init__(self):
         self.calls = []
@@ -57,9 +49,7 @@ def test_level_routes_to_the_right_method(level, expected):
 
 
 def test_every_severity_comes_from_a_different_line():
-    """The invariant rclpy actually enforces. If two severities ever share a
-    line, the second one raises inside the logging call and takes the node
-    down -- which is what a dict lookup or getattr would reintroduce."""
+    """No two severities may share a call site (as a dict lookup or getattr would)."""
     logger = RecordingLogger()
     for level in ("debug", "info", "warn", "error", "fatal"):
         emit(logger, level, "x")
@@ -71,9 +61,7 @@ def test_every_severity_comes_from_a_different_line():
 
 
 def test_repeated_calls_at_one_severity_share_a_site():
-    """The complement: rclpy is fine with one site reused at ONE severity, and
-    that is the common case. This guards against someone 'fixing' the above by
-    scattering severities across lines dynamically."""
+    """One site reused at a single severity is fine to rclpy."""
     logger = RecordingLogger()
     emit(logger, "warn", "a")
     emit(logger, "warn", "b")
@@ -81,9 +69,7 @@ def test_repeated_calls_at_one_severity_share_a_site():
 
 
 def test_emit_does_not_dispatch_dynamically():
-    """A regression guard on the shape of the source, because the behavioural
-    tests above pass just as happily with getattr -- the failure only appears
-    once a real rclpy logger is on the other end."""
+    """Source-shape guard: the behavioural tests would also pass with getattr."""
     src = inspect.getsource(emit)
     body = src.split('"""')[-1]      # skip the docstring, which names them
     assert "getattr(" not in body

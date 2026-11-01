@@ -1,73 +1,41 @@
 #!/usr/bin/env python3
-"""
-x2_bridge_node.py -- ROS 2 <-> Reactor X2 bridge.
+"""x2_bridge_node.py: ROS 2 <-> Reactor X2 bridge.
 
-X2 is a CONDITIONAL VIDEO model, not a generator. It consumes an inbound video
-track and returns an edited one. That is why this is fundamentally simpler than
-the Helios bridge:
+X2 is a conditional video model: it edits an inbound video track rather than
+generating from scratch, so structure comes from the source on every frame.
 
     Unity frames  --> [source track]  --> X2 --> [main_video] --> ROS 2
 
-Structure comes from the source on EVERY frame, so there is no seed decay and
-no re-anchoring. The drift curve we measured on Helios does not apply.
-
-TOPICS
-------
 Subscribes:
-    <input_image_topic>       sensor_msgs/Image    Unity's frame, raw rgb8
-                              (set input_compressed:=true for a CompressedImage
-                              publisher on <input_image_topic>/compressed)
+    <input_image_topic>       sensor_msgs/Image    Unity frame, raw rgb8
+                              (input_compressed:=true reads
+                              <input_image_topic>/compressed instead)
     /world_model/prompt       std_msgs/String      from prompt_director.py
 
 Publishes:
     /world_model/image_raw            sensor_msgs/Image
     /world_model/camera_info          sensor_msgs/CameraInfo
     /world_model/state                std_msgs/String   JSON session state
-
     /world_model/image_raw/compressed sensor_msgs/CompressedImage
-                              ONLY when publish_compressed:=true. Off by
-                              default: nothing in this rig subscribes to it
-                              (the panel and web_video_server both read the raw
-                              topic), and a JPEG encode per frame is not free.
+                              only when publish_compressed:=true
 
-RUN
----
     export REACTOR_API_KEY=rk_...
     ros2 run mars_rig x2_bridge_node --ros-args \
         -p input_image_topic:=/unity/camera/image_raw \
         -p keep_backlog:=true
 
-    # no API, no credits, for everyone else on the team:
-    ros2 run mars_rig x2_bridge_node --ros-args -p mock:=true
+    ros2 run mars_rig x2_bridge_node --ros-args -p mock:=true   # no API, no credits
 
-KEEP_BACKLOG -- read this before your scoring runs
---------------------------------------------------
-    false (default)  newest frames, drops backlog, bounded latency.
-                     Right for a LIVE Unity feed.
-    true             every frame in order, smoother, growing delay.
-                     Right for a PRE-RECORDED clip and for reproducible
-                     scoring runs, where you want every source frame edited.
+keep_backlog: false drops backlog for bounded latency (live feed); true edits
+every source frame in order (recorded clips, reproducible scoring runs).
 
-Use true for the results table. Use false for the live demo.
+Media API (reactor-sdk 1.1.1): the SDK owns the media path (no aiortc or av).
 
-MEDIA API -- verified against reactor-sdk 1.1.1, resolves BUILD_SPEC 9.1
-------------------------------------------------------------------------
-    help(Reactor.publish_track) ->  async publish_track(self, name: 'str') -> 'Track'
+    src = await reactor.publish_track("source")   # a track name, not an object
+    src.push_frame(rgb)                           # sync, (h, w, 3) uint8 RGB
 
-The SDK owns the media path itself; there is no aiortc and no `av` anywhere in
-it (reactor-sdk declares no runtime dependencies at all). So:
-
-    src = await reactor.publish_track("source")   # a NAME, never a track object
-    src.push_frame(rgb)                           # SYNCHRONOUS, (h, w, 3) uint8 RGB
-
-`push_frame` is sync and does no pacing, so _pump_source() below owns the 24 fps
-clock. Inbound, `track.on_frame(fn)` hands back an RGB (h, w, 3) array -- the
-BGRA-to-RGB conversion happens inside the SDK.
-
-The earlier version of this file passed an aiortc VideoStreamTrack and tried
-three call shapes to find the signature. None of them can work: the first
-argument is encoded as a track name, so a track object raises AttributeError on
-`name.encode()` before any of the fallbacks are reached.
+push_frame does no pacing, so _pump_source() owns the 24 fps clock. Inbound,
+`track.on_frame(fn)` receives an RGB (h, w, 3) array.
 """
 
 import asyncio
@@ -97,7 +65,7 @@ try:
 except ImportError:
     REACTOR_AVAILABLE = False
 
-SOURCE_FPS = 24          # X2's native source pacing. Do not change.
+SOURCE_FPS = 24          # X2's native source pacing
 
 
 class X2Bridge(Node):
@@ -106,25 +74,19 @@ class X2Bridge(Node):
 
         self.declare_parameter("model_name", "x2")
         self.declare_parameter("input_image_topic", "/unity/camera/image_raw")
-        # RAW BY DEFAULT. Subscribing to <topic>/compressed when the publisher
-        # only offers raw connects nothing, reports nothing, and leaves the
-        # bridge pushing its grey placeholder at X2 forever -- so this follows
-        # what Unity's DualCapture actually publishes, which is raw Image.
-        # Flip to true only alongside a real CompressedImage publisher; raw
-        # rgb8 at 832x512x24fps is ~30 MiB/s, so drop rgbFps or the resolution
-        # instead of assuming the link will carry it (BUILD_SPEC 5.2).
+        # Raw by default, matching Unity's publisher. Enable only alongside a
+        # CompressedImage publisher (raw rgb8 at 832x512x24fps is ~30 MiB/s).
         self.declare_parameter("input_compressed", False)
         self.declare_parameter("initial_prompt", "")
         self.declare_parameter("keep_backlog", True)
         self.declare_parameter("publish_fps", 24.0)
         self.declare_parameter("frame_id", "x2_cam")
-        # Nothing subscribes to the compressed companion topic. Opt in.
+        # Compressed companion topic is opt-in (nothing in the rig reads it).
         self.declare_parameter("publish_compressed", False)
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("mock", False)
         self.declare_parameter("mock_source", "")
-        # Track names are schema-confirmed (BUILD_SPEC 3.1); parameters only so a
-        # schema change does not need a code change.
+        # Track names come from the model schema; parameters allow overrides.
         self.declare_parameter("source_track", "source")
         self.declare_parameter("output_track", "main_video")
 
@@ -156,9 +118,7 @@ class X2Bridge(Node):
         self._got_unity = False
         self._logged_first_output = False
 
-        # RELIABLE out, BEST_EFFORT in -- see the QoS note in imgcodec.py. A
-        # best-effort image publisher is invisible to rosbridge_server and
-        # web_video_server, which is a blank panel with nothing in any log.
+        # RELIABLE out, BEST_EFFORT in (see the QoS note in imgcodec.py).
         pub_qos = image_pub_qos()
         sub_qos = image_sub_qos()
         self.pub_image = self.create_publisher(
@@ -183,8 +143,7 @@ class X2Bridge(Node):
                 Image, source, self._on_unity_frame, sub_qos)
             self.get_logger().info(f"source: {source} (raw Image)")
             source_type = "sensor_msgs/msg/Image"
-        # Without this the bridge pushes grey at X2 forever and says nothing
-        # useful about why. See topicwatch.py.
+        # Warns if the source topic is silent (see topicwatch.py).
         self.watch = TopicWatchdog(self, source, source_type, "camera")
         self.create_subscription(
             String, "/world_model/prompt", self._on_prompt, 10)
@@ -260,9 +219,8 @@ class X2Bridge(Node):
                 c.data = buf.tobytes()
                 self.pub_compressed.publish(c)
 
-        # Synthetic intrinsics so downstream nodes that demand CameraInfo do
-        # not fall over. There is no real camera -- treat any metric result
-        # derived from these as fiction. Real depth comes from Unity.
+        # Synthetic intrinsics for nodes that require CameraInfo; not a real
+        # camera model.
         h, w = frame.shape[:2]
         f = float(w) * 0.8
         info = CameraInfo()
@@ -277,8 +235,7 @@ class X2Bridge(Node):
         self.pub_info.publish(info)
 
     def _report(self):
-        """Both counters, every 5s. A live session bills per second, so 'is
-        anything actually flowing' has to be answerable at a glance."""
+        """Log frame counters every 5 s (live sessions are billed per second)."""
         if self.mock:
             return
         if self._pushed and not self._received:
@@ -331,11 +288,9 @@ class X2Bridge(Node):
                 self._emit_state({"event": "generation_started"})
             elif kind == "generation_stopped":
                 reason = data.get("reason")
-                # reference_image_changed is an automatic restart, not an end,
-                # so it is not worth a warning. Routed through emit() because
-                # binding one call site to two severities raises inside rclpy --
-                # and this handler only runs during a live paid session, which
-                # is the worst possible place to find that out. See roslog.py.
+                # Only "reset" is expected (automatic restart); anything else
+                # warns. Uses emit() because one call site cannot log two
+                # severities in rclpy (see roslog.py).
                 emit(self.get_logger(),
                      "info" if reason == "reset" else "warn",
                      f"generation stopped: {reason}")
@@ -351,18 +306,14 @@ class X2Bridge(Node):
         def on_error(err):
             self.get_logger().error(f"reactor error: {err}")
 
-        # Outbound: the edited stream. Bound BY NAME and BEFORE connect, because
-        # `reactor.tracks` stays empty until the model's capabilities arrive
-        # shortly after connect() -- so `.with_direction(...).one()` here is a
-        # race that raises "no track matches" on a fast connect. Registering on
-        # the named track is explicitly supported ahead of time; the SDK adapts
-        # the handler once the declaration lands.
+        # Outbound edited stream, bound by name before connect: `reactor.tracks`
+        # is empty until capabilities arrive, so a lookup would race.
         out = reactor.track(self.output_track_name)
 
         @out.on_frame
         def on_frame(frame):
-            # Contiguous copy: the SDK hands back a reversed-stride view onto a
-            # read-only buffer, and this frame outlives the callback.
+            # Copy: the SDK's buffer is a read-only view that must not outlive
+            # the callback.
             with self.lock:
                 self.out_frames.append(np.ascontiguousarray(frame))
             self._received += 1
@@ -374,20 +325,18 @@ class X2Bridge(Node):
         await reactor.connect()
         self.get_logger().info(f"connected to {self.model_name}")
 
-        # Inbound: Unity's stream. This is what makes X2 an editor rather
-        # than a generator, and why structure is preserved every frame.
+        # Inbound: Unity's stream, which X2 edits.
         src = await reactor.publish_track(self.source_track_name)
         self.get_logger().info(
             f"publishing Unity frames on `{self.source_track_name}`")
         pump = asyncio.create_task(self._pump_source(src))
 
-        # Frame policy. true = every frame in order (scoring runs);
-        # false = newest only, bounded latency (live demo).
+        # true = every frame in order; false = newest only.
         await reactor.send_command(
             "set_keep_backlog", {"keep_backlog": self.keep_backlog})
 
-        # There is NO start command. Generation begins by itself once a
-        # non-empty prompt is set and source frames are flowing.
+        # No start command: generation begins once a prompt is set and
+        # source frames are flowing.
         if self.initial_prompt:
             await reactor.send_command(
                 "set_prompt", {"prompt": self.initial_prompt[:1000]})
@@ -402,14 +351,12 @@ class X2Bridge(Node):
                     prompt = self.pending_prompt
                     self.pending_prompt = None
                 if prompt:
-                    # Applies from the next block. Always a complete replacement:
-                    # X2 has no relative follow-ups like "make it dustier".
+                    # Applies from the next chunk; always a full replacement.
                     await reactor.send_command("set_prompt", {"prompt": prompt})
                 await asyncio.sleep(0.2)
         finally:
             pump.cancel()
-            # Credits bill per second, so a dying node closes its session rather
-            # than leaving it open for the socket to time out.
+            # Close the session promptly: credits bill per second.
             try:
                 await reactor.disconnect()
             except Exception as exc:  # noqa: BLE001
@@ -418,10 +365,8 @@ class X2Bridge(Node):
     async def _pump_source(self, src):
         """Hand Unity's newest frame to X2 at a steady 24 fps.
 
-        push_frame() is synchronous and does no pacing of its own, so the clock
-        lives here. X2 paces its source at 24 fps: if Unity renders slower we
-        repeat the last frame, if faster the newest wins. Either way frames must
-        keep arriving -- generation stalls without them.
+        Repeats the last frame if Unity is slower; the newest wins if faster.
+        Generation stalls without a steady stream.
         """
         period = 1.0 / SOURCE_FPS
         placeholder = np.full((768, 1280, 3), 96, dtype=np.uint8)
@@ -455,8 +400,7 @@ class X2Bridge(Node):
             if delay > 0:
                 await asyncio.sleep(delay)
             else:
-                # Fell behind. Resync rather than sprinting to catch up, which
-                # would push a burst of stale frames at the model.
+                # Fell behind: resync rather than burst stale frames.
                 next_t = time.monotonic()
 
     # ---------------- mock ----------------
@@ -464,8 +408,7 @@ class X2Bridge(Node):
     async def _mock_main(self):
         """Echo the Unity frame with a tint, or replay mock_source.
 
-        No API, no credits, no session conflict. Same topics, so everything
-        downstream can be built and tested against this.
+        Publishes the same topics as the real path, with no API use.
         """
         self.get_logger().warn("MOCK MODE -- output is not from X2")
         cap = None
@@ -486,7 +429,7 @@ class X2Bridge(Node):
                 with self.lock:
                     src = self.source_frame
                 if src is not None:
-                    # Crude "Mars" tint so it is obviously mock.
+                    # Tint so mock output is recognisable.
                     frame = src.astype(np.float32)
                     frame[:, :, 0] *= 1.35
                     frame[:, :, 2] *= 0.65
@@ -514,12 +457,8 @@ def main():
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
-        # ros2 launch sends SIGINT, rclpy's signal handler shuts the context
-        # down, and spin() then raises. Calling shutdown() again from here
-        # raises RCLError("rcl_shutdown already called") from inside the
-        # finally block, so the node exits 1 and launch prints
-        # "process has died" for a perfectly normal Ctrl-C. Real crashes then
-        # look exactly like a clean exit, which is the actual cost.
+        # rclpy's SIGINT handler already shut the context down; a second
+        # shutdown() would raise RCLError.
         pass
     finally:
         node.destroy_node()

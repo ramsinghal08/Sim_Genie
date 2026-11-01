@@ -1,25 +1,10 @@
 /**
- * mjpeg.js -- an MJPEG stream -> a MediaStreamTrack X2 can consume.
+ * MJPEG stream -> MediaStreamTrack X2 can consume.
  *
- * This is the ONLY input path: web_video_server already turns any ROS image
- * topic into MJPEG, so the browser never touches ROS to get pixels.
- *
- * WHY FETCH AND NOT <img>
- * ----------------------
- * An <img> pointed at multipart/x-mixed-replace decodes frames, but it reports
- * nothing: no per-frame event, no byte count, no HTTP status. When it produced
- * no frames the only signal was `naturalWidth === 0`, which is identical for a
- * 404, a wrong topic, a stalled server, and a browser that decided not to
- * decode. Hours went into guessing between those.
- *
- * Reading the stream with fetch() makes every one of them nameable -- status,
- * bytes, parts -- and removes the dependency on the browser's multipart <img>
- * behaviour entirely.
- *
- * It also solves canvas taint for free. A cross-origin <img> drawn to a canvas
- * taints it, and a tainted canvas CANNOT be captured -- which would break the
- * whole point, since captureStream() is what feeds X2. A Blob assembled from
- * fetched bytes is same-origin data, so the canvas stays clean.
+ * web_video_server turns a ROS image topic into MJPEG. The stream is read with
+ * fetch() rather than <img> so status, byte count and decode failures are
+ * observable, and so the canvas stays untainted (captureStream() fails on a
+ * tainted canvas; a Blob built from fetched bytes is same-origin data).
  */
 
 /** Find `needle` in `hay` starting at `from`. -1 if absent. */
@@ -68,9 +53,7 @@ export class MjpegSource {
 
   /** Begin reading, and return the track immediately. */
   start() {
-    // captureStream needs a canvas with a size; the first decoded frame
-    // resizes it. Without this the track exists but carries nothing, and the
-    // model waits forever for a source it will never get.
+    // captureStream needs a sized canvas; the first decoded frame resizes it.
     if (!this.canvas.width) {
       this.canvas.width = 16;
       this.canvas.height = 16;
@@ -110,16 +93,14 @@ export class MjpegSource {
     const match = /boundary=([^;]+)/i.exec(contentType);
     if (!match) {
       this.onError(
-        `not an MJPEG stream — Content-Type is "${contentType || "(none)"}"`,
+        `not an MJPEG stream - Content-Type is "${contentType || "(none)"}"`,
       );
       return;
     }
 
-    // web_video_server declares `boundary=--boundarydonotcross` and then
-    // writes `--boundarydonotcross`, which is one `--` short of what the
-    // multipart spec says. Searching for the DECLARED string handles both
-    // that and a spec-correct server, because the declared text appears
-    // verbatim inside the delimiter either way.
+    // web_video_server declares `boundary=--boundarydonotcross` but writes
+    // `--boundarydonotcross`. Searching for the declared string matches both
+    // that and a spec-correct server.
     const boundary = ENC.encode(match[1].trim().replace(/^"|"$/g, ""));
     const headerEnd = ENC.encode("\r\n\r\n");
 
@@ -143,7 +124,7 @@ export class MjpegSource {
           const start = indexOfBytes(buf, boundary);
           if (start < 0) break;
           const hEnd = indexOfBytes(buf, headerEnd, start);
-          if (hEnd < 0) break;                       // headers still arriving
+          if (hEnd < 0) break; // headers still arriving
 
           const headers = DEC.decode(buf.subarray(start, hEnd));
           const lenMatch = /content-length:\s*(\d+)/i.exec(headers);
@@ -155,18 +136,18 @@ export class MjpegSource {
           } else {
             // No Content-Length: the part ends where the next one begins.
             const next = indexOfBytes(buf, boundary, bodyStart);
-            if (next < 0) break;                     // wait for the next boundary
-            bodyEnd = next - 2;                      // strip the trailing CRLF
+            if (next < 0) break; // wait for the next boundary
+            bodyEnd = next - 2; // strip the trailing CRLF
           }
-          if (buf.length < bodyEnd) break;           // body still arriving
+          if (buf.length < bodyEnd) break; // body still arriving
 
           await this._draw(buf.subarray(bodyStart, bodyEnd));
           buf = buf.slice(bodyEnd);
         }
 
-        // A boundary that never matches would otherwise grow this forever.
+        // Bound the buffer if the boundary never matches.
         if (buf.length > 32 * 1024 * 1024) {
-          this.onError("no multipart boundary found in 32 MB — wrong stream format?");
+          this.onError("no multipart boundary found in 32 MB - wrong stream format?");
           return;
         }
       }
@@ -180,13 +161,11 @@ export class MjpegSource {
   async _draw(jpegBytes) {
     let bitmap;
     try {
-      // A Blob built here is OUR data, so drawing it never taints the canvas
-      // -- unlike a cross-origin <img>, which would make captureStream fail.
       bitmap = await createImageBitmap(
         new Blob([jpegBytes], { type: "image/jpeg" }),
       );
     } catch (e) {
-      return;                                        // a torn part; skip it
+      return; // torn part; skip
     }
     if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
       this.canvas.width = bitmap.width;

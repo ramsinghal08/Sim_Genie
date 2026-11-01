@@ -8,26 +8,15 @@ using UnityEngine;
 namespace MarsRig
 {
     /// <summary>
-    /// Renders the RGB view and the semantic labels from ONE camera, in one
-    /// frame, and publishes both under ONE timestamp.
+    /// Renders the RGB view and the semantic labels from one camera, in one
+    /// frame, and publishes both under one timestamp.
     ///
-    /// WHY ONE CAMERA AND NOT TWO
-    /// --------------------------
-    /// BUILD_SPEC 5.1 says Camera 1 and Camera 2 must be pixel-identical --
-    /// same transform, FOV, resolution and frame -- and that if this fails
-    /// every number downstream is wrong. Two camera objects can drift apart in
-    /// six different ways: someone nudges a transform, changes an FOV, edits
-    /// one aspect ratio, or the two render on different frames while the rover
-    /// is moving. None of those throw.
+    /// Using a single camera guarantees the RGB and label passes share the same
+    /// transform, FOV, resolution and frame, so they cannot drift apart. Both
+    /// renders happen inside one LateUpdate. Editor/AlignmentCheck.cs verifies
+    /// the result.
     ///
-    /// One camera rendered twice cannot drift. The transform, the FOV and the
-    /// projection are literally the same object, and both renders happen inside
-    /// one LateUpdate, so the rover has not moved between them. The alignment
-    /// check in Editor/AlignmentCheck.cs then verifies the result rather than
-    /// being the only thing standing between us and silent garbage.
-    ///
-    /// Perception never sees the label topic. Only scoring_node subscribes to
-    /// it (BUILD_SPEC 2).
+    /// Perception never sees the label topic; only scoring_node subscribes.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public class DualCapture : MonoBehaviour
@@ -41,7 +30,7 @@ namespace MarsRig
         public string frameId = "unity_cam";
 
         [Header("Capture")]
-        [Tooltip("X2's native source pacing. Do not change without reading BUILD_SPEC 3.1.")]
+        [Tooltip("X2's native source pacing. Do not change without reading the design requirements")]
         public int rgbFps = 24;
 
         [Tooltip("The scorer caps at 10 Hz, so publishing labels faster is pure bandwidth.")]
@@ -66,7 +55,7 @@ namespace MarsRig
         public int jpegQuality = 80;
 
         [Tooltip("PNG is lossless, so classes survive it exactly, and a flat-colour " +
-                 "label image compresses enormously. Raw matches BUILD_SPEC 5.5 as " +
+                 "label image compresses enormously. Raw matches the design requirements as " +
                  "written; set scoring_node's ground_truth_compressed to match.")]
         public bool labelAsPng = false;
 
@@ -75,9 +64,8 @@ namespace MarsRig
         Texture2D _rgbTex, _labelTex;
         ROSConnection _ros;
 
-        // Renderer -> the flat material its class paints. Built once: walking
-        // the scene graph per frame at 24 fps is the kind of thing that quietly
-        // halves the frame rate and gets blamed on the network.
+        // Renderer -> flat material for its class. Built once to avoid walking
+        // the scene graph every frame.
         readonly List<Renderer> _renderers = new List<Renderer>();
         readonly List<Material[]> _originals = new List<Material[]>();
         readonly List<Material[]> _flats = new List<Material[]>();
@@ -95,9 +83,7 @@ namespace MarsRig
 
             _rgbRt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
             _labelRt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
-            // No mipmaps and no filtering on the label target: a filtered label
-            // pixel is a blend of two class colours, which is a class that does
-            // not exist.
+            // No mipmaps or filtering: a filtered label pixel blends two class colours.
             _labelRt.filterMode = FilterMode.Point;
             _rgbTex = new Texture2D(width, height, TextureFormat.RGB24, false);
             _labelTex = new Texture2D(width, height, TextureFormat.RGB24, false);
@@ -118,9 +104,7 @@ namespace MarsRig
 
             foreach (MarsClass c in System.Enum.GetValues(typeof(MarsClass)))
             {
-                // Unlit so the label colour is exactly the palette value --
-                // any lighting response would shift it toward a neighbouring
-                // class and the scorer would never know.
+                // Unlit so the label colour equals the palette value exactly.
                 var m = new Material(Shader.Find("Unlit/Color"));
                 m.color = MarsClasses.ColorOf(c);
                 _flatByClass[c] = m;
@@ -130,9 +114,7 @@ namespace MarsRig
             {
                 if (!r.enabled) continue;
                 var label = r.GetComponentInParent<SemanticLabel>();
-                // Untagged renders as Unlabelled, which the scorer ignores. A
-                // forgotten object costs us a hole in the answer key, never a
-                // wrong answer counted as right.
+                // Untagged renders as Unlabelled, which the scorer ignores.
                 var cls = label != null ? label.marsClass : MarsClass.Unlabelled;
 
                 var originals = r.sharedMaterials;
@@ -154,8 +136,7 @@ namespace MarsRig
 
             while (true)
             {
-                // End of frame so the scene is fully updated -- capturing
-                // mid-frame gives a rover pose that no published image matches.
+                // End of frame, so the scene is fully updated.
                 yield return new WaitForEndOfFrame();
 
                 var header = RosTime.Header(frameId);
@@ -163,9 +144,7 @@ namespace MarsRig
                 RenderTo(_rgbRt, _rgbTex, false);
                 PublishRgb(header);
 
-                // Both images carry the SAME header, so the scorer's
-                // ApproximateTimeSynchronizer pairs the render with the labels
-                // it was generated from, not with a neighbouring frame.
+                // Both images share one header so the scorer pairs them correctly.
                 if (Time.time >= nextLabel)
                 {
                     nextLabel = Time.time + labelPeriod;
@@ -190,9 +169,7 @@ namespace MarsRig
                 // Anything the geometry does not cover is sky by definition.
                 _cam.clearFlags = CameraClearFlags.SolidColor;
                 _cam.backgroundColor = MarsClasses.ColorOf(MarsClass.Sky);
-                // Fog tints the flat colours toward the fog colour, which is a
-                // silent class change on distant objects -- exactly where the
-                // interesting rocks are.
+                // Fog would tint flat label colours toward the fog colour.
                 RenderSettings.fog = false;
             }
 
@@ -215,9 +192,7 @@ namespace MarsRig
             }
         }
 
-        /// <summary>Public so AlignmentCheck can drive the same code path
-        /// directly. SendMessage would do it too, but a typo there fails
-        /// silently, which is the one thing this rig cannot afford.</summary>
+        /// <summary>Public so AlignmentCheck can use the same code path.</summary>
         public void SwapToFlat()
         {
             for (int i = 0; i < _renderers.Count; i++)
@@ -250,9 +225,7 @@ namespace MarsRig
                 return;
             }
 
-            // RGB24 is three tightly packed bytes per pixel, which is exactly
-            // sensor_msgs rgb8 with step = width * 3. No conversion, no copy
-            // beyond the one GetRawTextureData already makes.
+            // RGB24 matches sensor_msgs rgb8 with step = width * 3; no conversion needed.
             _ros.Publish(rgbTopic, new ImageMsg
             {
                 header = header,
@@ -270,8 +243,7 @@ namespace MarsRig
             var flipped = FlipVertically(_labelTex);
             if (labelAsPng)
             {
-                // PNG, never JPEG. JPEG bleeds colour across class boundaries
-                // and no downstream code can undo it.
+                // PNG is lossless; JPEG would bleed colour across class boundaries.
                 _ros.Publish(labelTopic + "/compressed", new CompressedImageMsg
                 {
                     header = header,
@@ -295,13 +267,9 @@ namespace MarsRig
         }
 
         /// <summary>
-        /// Unity textures start bottom-left, ROS images start top-left.
-        ///
-        /// Skipping this does NOT break IoU -- both images flip together, so the
-        /// score is unaffected -- which is precisely why it is worth doing here
-        /// rather than discovering it during the demo: the panel shows an
-        /// upside-down Mars and X2 repaints an upside-down scene, and the
-        /// numbers give no hint that anything is wrong.
+        /// Unity textures start bottom-left; ROS images start top-left. Both
+        /// images flip together so IoU is unaffected, but consumers would
+        /// otherwise show an upside-down scene.
         /// </summary>
         Texture2D FlipVertically(Texture2D src)
         {

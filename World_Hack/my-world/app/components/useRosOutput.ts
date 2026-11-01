@@ -11,20 +11,10 @@ import {
   type RosStatus,
 } from "@/app/lib/ros/connection";
 
-// The return leg: X2's edited output goes back onto ROS, and ROS drives the
-// prompt.
-//
-// This is what makes the browser a *bridge* rather than a viewer. Once
-// /world_model/image_raw is being published from here, the rest of the rig
-// carries on exactly as it did with x2_bridge_node.py -- perception segments
-// it, the scorer scores it, and the control panel shows it in pane 2. None of
-// them know or care that the model now runs in a tab.
-//
-// Mount this once, high in the tree, and gate it with `enabled`. OFF is the
-// simple path: the stream source pulls MJPEG over plain HTTP, so with this off
-// the page opens no websocket and publishes nothing. Turning it on is what
-// puts the page back in the middle of the rig loop -- and it owns the rosbridge
-// connection now, since nothing else needs one.
+// Return leg: publishes X2's output to ROS and forwards ROS prompts to the
+// model. Mount once, high in the tree, gated by `enabled`. When off, no
+// websocket is opened and nothing is published; this hook owns the rosbridge
+// connection.
 
 export interface RosOutputStats {
   publishing: boolean;
@@ -61,8 +51,7 @@ export function useRosOutput({
 
   useEffect(() => subscribeStatus(setRosStatus), []);
 
-  // Own the connection: opened when switched on, closed when switched off, so
-  // "off" really means no websocket rather than a quiet one.
+  // Connection is open only while enabled.
   useEffect(() => {
     if (!enabled) {
       disconnectRos();
@@ -72,7 +61,7 @@ export function useRosOutput({
     return () => disconnectRos();
   }, [enabled, rosUrl]);
 
-  // ---- output track -> ROS ------------------------------------------------
+  // Output track -> ROS.
   useEffect(() => {
     const ros = getRos();
     if (!enabled || !ros || !track) return;
@@ -80,8 +69,7 @@ export function useRosOutput({
     const sink = new X2Sink(ros, outputTopic, { fps, maxWidth });
     sinkRef.current = sink;
     sink.onPublish = (n: number, w: number, h: number) => {
-      // Throttled to once a second: this fires at `fps` and a setState per
-      // published frame would re-render the workspace 12 times a second.
+      // Throttle to ~1/s to avoid re-rendering on every frame.
       if (n === 1 || n % fps === 0) {
         setStats((s) => ({ ...s, publishing: true, published: n,
                            size: `${w}x${h}` }));
@@ -100,11 +88,7 @@ export function useRosOutput({
     };
   }, [enabled, track, rosStatus, outputTopic, fps, maxWidth]);
 
-  // ---- ROS prompt -> the model -------------------------------------------
-  //
-  // The control panel and prompt_director both publish here. Forwarded
-  // VERBATIM: a single changed word invalidates the comparison the whole rig
-  // exists to make, so the only edit is X2's own 1000-character cap.
+  // ROS prompt -> model. Forwarded verbatim except for X2's 1000-char cap.
   useEffect(() => {
     const ros = getRos();
     if (!enabled || !ros) return;
@@ -121,10 +105,7 @@ export function useRosOutput({
     return () => ros.unsubscribe(promptTopic);
   }, [enabled, rosStatus, promptTopic, setPrompt]);
 
-  // ---- session state -> ROS ----------------------------------------------
-  //
-  // Keeps the control panel's BRIDGE card alive, and says plainly that frames
-  // are coming through a browser rather than x2_bridge_node.
+  // Session state -> ROS (control panel BRIDGE card).
   useEffect(() => {
     const ros = getRos();
     if (!enabled || !ros) return;
@@ -136,9 +117,7 @@ export function useRosOutput({
           generating: !!(sink && sink.published),
           via: "browser (my-world)",
           output_frames: sink ? sink.published : 0,
-          // Only once a frame exists: a fresh <canvas> is 300x150, and
-          // reporting that as the model's output resolution puts a plausible,
-          // entirely invented number on the panel.
+          // Omitted until a frame exists (a fresh canvas is 300x150).
           width: sink && sink.published ? sink.canvas.width : undefined,
           height: sink && sink.published ? sink.canvas.height : undefined,
         }),

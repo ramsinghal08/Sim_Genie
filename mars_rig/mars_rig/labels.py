@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
-"""
-labels.py -- class palettes and IoU maths. Pure numpy, no rclpy.
+"""labels.py: class palettes and IoU maths (pure numpy, no rclpy).
 
-Deliberately free of ROS so the metric can be unit-tested on handmade PNGs
-without a running graph (BUILD_SPEC.md section 8, test 2). scoring_node.py is a
-thin ROS wrapper over this file; if a number looks wrong, the bug is here and
-you can reproduce it in a plain python REPL.
+scoring_node.py is a thin ROS wrapper over this module.
 
-WHY QUANTISE AT ALL
--------------------
-Unity's label camera renders a flat colour per class. Anything that touches
-those pixels on the way -- a resize, a JPEG encode -- moves them off the exact
-palette value. Nearest-colour assignment tolerates that drift; an equality test
-against the palette silently would not, and would report IoU 0 with no error
-anywhere.
-
-That tolerance is a safety net, not a licence: publish label images as raw or
-PNG. JPEG on a label image bleeds colour across class boundaries and no
-downstream code can undo it.
+Unity's label camera renders a flat colour per class; resizes or compression
+shift those colours off the palette. Nearest-colour quantisation tolerates the
+drift where an equality test would silently score 0. Publish labels as raw or
+PNG: JPEG bleeds colour across class boundaries.
 """
 
 from __future__ import annotations
@@ -25,8 +14,7 @@ from __future__ import annotations
 import numpy as np
 
 #: Default class palette: name -> RGB as Unity's replacement shader renders it.
-#: Override with the `palette` parameter on scoring_node once Unity's real
-#: shader colours are known -- do not edit this and expect it to propagate.
+#: Override via scoring_node's `palette` parameter.
 DEFAULT_PALETTE: dict[str, tuple[int, int, int]] = {
     "unlabelled": (0, 0, 0),
     "drivable": (0, 255, 0),
@@ -34,10 +22,8 @@ DEFAULT_PALETTE: dict[str, tuple[int, int, int]] = {
     "sky": (0, 0, 255),
 }
 
-#: Classes that count toward the headline mean IoU. `unlabelled` is ignored by
-#: definition (BUILD_SPEC section 5.5). `sky` is excluded because it is a large,
-#: trivially separable region -- including it inflates the mean and hides
-#: exactly the ground/obstacle degradation this rig exists to measure.
+#: Classes in the headline mean IoU. `sky` is excluded: it is large and
+#: trivially separable, so it would mask ground/obstacle degradation.
 DEFAULT_SCORED: tuple[str, ...] = ("drivable", "obstacle")
 
 UNLABELLED_ID = 0
@@ -46,8 +32,7 @@ UNLABELLED_ID = 0
 class LabelSpace:
     """A palette plus which of its classes are scored.
 
-    Holds the palette as an (N, 3) array so quantisation is one vectorised
-    distance computation rather than a python loop over pixels.
+    The palette is held as an (N, 3) array for vectorised quantisation.
     """
 
     def __init__(
@@ -58,11 +43,10 @@ class LabelSpace:
     ) -> None:
         palette = dict(palette or DEFAULT_PALETTE)
         if "unlabelled" not in palette:
-            # Every image needs somewhere to put pixels that match nothing.
+            # Pixels matching nothing need a class.
             palette = {"unlabelled": (0, 0, 0), **palette}
 
-        # `unlabelled` is pinned to id 0 so UNLABELLED_ID is a constant rather
-        # than something every caller has to look up.
+        # `unlabelled` is pinned to id 0 (UNLABELLED_ID).
         names = ["unlabelled"] + [n for n in palette if n != "unlabelled"]
         self.names: list[str] = names
         self.colours = np.array([palette[n] for n in names], dtype=np.int16)
@@ -78,9 +62,8 @@ class LabelSpace:
         self.scored_names: list[str] = wanted
         self.scored_ids: list[int] = [self.id_of[n] for n in wanted]
 
-        # Pixels farther than this from every palette colour become unlabelled
-        # instead of being forced into the least-wrong class. None disables the
-        # check, which is what you want if the palette covers the whole image.
+        # Pixels farther than this from every palette colour become unlabelled.
+        # None disables the check.
         self.max_distance = max_distance
 
     def __len__(self) -> int:
@@ -89,10 +72,9 @@ class LabelSpace:
     def quantise(self, img: np.ndarray) -> np.ndarray:
         """Map an image to class ids, shape (h, w), dtype uint8.
 
-        Accepts either an RGB image (h, w, 3), which is matched to the nearest
-        palette colour, or a single-channel image (h, w) / (h, w, 1), which is
-        already class ids and is passed through with out-of-range values folded
-        to unlabelled.
+        An RGB image (h, w, 3) is matched to the nearest palette colour. A
+        single-channel image is taken as class ids, with out-of-range values
+        mapped to unlabelled.
         """
         if img.ndim == 3 and img.shape[2] == 1:
             img = img[:, :, 0]
@@ -108,9 +90,7 @@ class LabelSpace:
             )
         rgb = img[:, :, :3].astype(np.int16)
 
-        # (h, w, N) squared distances to every palette colour at once. int16
-        # inputs keep the subtraction exact; int32 keeps the square from
-        # wrapping (3 * 255**2 = 195075, well past int16).
+        # (h, w, N) squared distances; int32 avoids overflow (max 195075).
         diff = rgb[:, :, None, :] - self.colours[None, None, :, :]
         dist2 = np.einsum("hwnc,hwnc->hwn", diff, diff, dtype=np.int32)
 
@@ -124,11 +104,9 @@ class LabelSpace:
 def iou_per_class(
     pred_ids: np.ndarray, gt_ids: np.ndarray, class_ids: list[int]
 ) -> dict[int, float | None]:
-    """IoU for each class id. None means the class was absent from both images.
+    """IoU for each class id; None if the class is absent from both images.
 
-    An absent class has an empty union. Scoring it 0 punishes perception for a
-    class it was never shown; scoring it 1 rewards it for the same. Both are
-    wrong, so it is skipped and excluded from the mean (BUILD_SPEC 5.5).
+    An empty union is skipped (and excluded from the mean) rather than scored.
     """
     if pred_ids.shape != gt_ids.shape:
         raise ValueError(

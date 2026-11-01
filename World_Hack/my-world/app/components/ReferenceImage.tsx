@@ -5,15 +5,10 @@ import { useX2 } from "@reactor-models/x2";
 import { PRESET_IMAGES } from "@/app/lib/clips";
 import { Panel, cn, EYEBROW, FOCUS_RING, errorMessage } from "./ui";
 
-// The runtime feeds the reference image to the model as a driving video, and
-// its GStreamer pipeline scrambles the color channels when a streamed frame's
-// width or height isn't a multiple of 4 — an arbitrarily-sized upload shears
-// the output into desaturated streaks, worst right after a mid-run swap. Floor
-// each dimension to the nearest multiple of 4 and center-crop to it before
-// upload (shaves at most 3px per side, no visible change). The demo presets
-// are already mod-4, so this is a no-op for them; it only rescues odd-sized
-// user uploads. Best-effort: any failure returns the original file so the
-// upload still goes through.
+// The runtime scrambles color channels when a streamed frame's width or height
+// is not a multiple of 4. Center-crop (at most 3px per side) to the nearest
+// multiple of 4 before upload. Best-effort: on failure the original file is
+// returned.
 async function toMod4(file: File): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
@@ -31,7 +26,6 @@ async function toMod4(file: File): Promise<Blob> {
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
-    // Center-crop the shaved pixels rather than scaling, so nothing distorts.
     ctx.drawImage(
       img,
       (img.naturalWidth - w) / 2,
@@ -54,17 +48,10 @@ async function toMod4(file: File): Promise<Blob> {
   }
 }
 
-// Reference-image panel for character/object insertion or swap. Picking an
-// image uploads it via the SDK's presigned-URL protocol (uploadFile) and then
-// sends set_reference_image with the returned FileRef; the model answers with
-// reference_image_accepted (or command_error for an undecodable file).
-//
-// The reference conditions a run from its first block. Setting it while
-// generating restarts the stream automatically (generation_stopped with
-// reason `reference_image_changed`, then a fresh generation_started) — no
-// manual reset needed. The parent keys this component on the reset nonce: a
-// user reset clears the reference server-side, and the remount drops the
-// local preview in step.
+// Reference-image panel for character/object insertion or swap. Uploads the
+// image via uploadFile, then sends set_reference_image with the FileRef. Setting
+// it mid-run restarts the stream automatically. The parent keys this component
+// on the reset nonce so a user reset drops the local preview.
 export function ReferenceImage({
   generating,
   hasReference,
@@ -93,9 +80,7 @@ export function ReferenceImage({
     setBusy(true);
     setError(null);
     try {
-      // Normalize to mod-4 dimensions first (see toMod4): the runtime streams
-      // the reference as a driving video and scrambles the color channels on
-      // any frame whose width or height isn't a multiple of 4.
+      // Normalize to mod-4 dimensions first (see toMod4).
       const ref = await uploadFile(await toMod4(file), { name: file.name });
       await setReferenceImage({ reference_image: ref });
       setPreviewUrl((prev) => {
@@ -115,8 +100,7 @@ export function ReferenceImage({
     if (file) await apply(file);
   }
 
-  // Demo refs ship as static assets; fetch one back into a File so it goes
-  // through the exact same upload path as a user-picked image.
+  // Fetch a demo preset into a File so it uses the same upload path.
   async function pickPreset(preset: (typeof PRESET_IMAGES)[number]) {
     if (busy || !ready) return;
     setError(null);
@@ -144,7 +128,6 @@ export function ReferenceImage({
             aria-label={`Use demo reference: ${preset.label}`}
             title={preset.label}
           >
-            {/* Plain <img>: tiny demo thumbnails, no next/image pipeline needed. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={preset.src}
@@ -168,8 +151,6 @@ export function ReferenceImage({
           className="hidden"
         />
         {previewUrl ? (
-          // Plain <img>: the preview is a transient blob URL, not an asset
-          // next/image could optimize.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={previewUrl}
@@ -201,7 +182,7 @@ export function ReferenceImage({
         <p className="mt-2 text-xs text-zinc-500">
           Accepted ({accepted.width}×{accepted.height}).{" "}
           {generating
-            ? "Conditioning the current run — replacing it restarts the stream."
+            ? "Conditioning the current run - replacing it restarts the stream."
             : "Will condition the next run."}
         </p>
       )}

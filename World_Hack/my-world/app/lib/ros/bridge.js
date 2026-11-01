@@ -1,28 +1,15 @@
 /**
- * bridge.js -- Unity/ROS <-> Reactor X2, with the browser as the bridge.
+ * Unity/ROS <-> Reactor X2, with the browser as the bridge.
  *
  *   /unity camera topic  --rosbridge-->  <canvas>  --captureStream-->  X2
  *   X2 main_video track  --> <video> --> <canvas> --rosbridge--> /world_model/image_raw
  *
- * WHY THE BROWSER
- * ---------------
- * The Reactor JS SDK authenticates with a JWT minted server-side and moves
- * video over WebRTC. `publishTrack(name, track)` takes any MediaStreamTrack,
- * and a canvas produces one via captureStream() -- so there is no need for a
- * webcam, a virtual camera device, or a v4l2 loopback. We draw ROS frames into
- * a canvas and publish the canvas.
+ * ROS frames are drawn into a canvas and published as a MediaStreamTrack, so
+ * no webcam or virtual camera is needed. Downstream ROS nodes are unchanged.
  *
- * Nothing downstream changes. perception_node, scoring_node, prompt_director
- * and the control panel only ever spoke ROS topics, and they still do.
- *
- * SDK-AGNOSTIC ON PURPOSE
- * -----------------------
- * This file never imports the SDK. It is handed a small adapter:
- *
- *     { publishTrack(name, track), sendCommand(cmd, data), onOutputTrack(fn) }
- *
- * so the ROS half can be tested headlessly against a stub, which is the only
- * half that can be tested without an API key and a live session.
+ * This file never imports the SDK; it takes an adapter
+ * `{ publishTrack(name, track), sendCommand(cmd, data), onOutputTrack(fn) }`
+ * so the ROS half can be tested headlessly against a stub.
  */
 
 import { Rosbridge, imageToImageData, imageDataToMsg } from "./rosbridge.js";
@@ -36,11 +23,9 @@ function nowStamp() {
 /**
  * ROS camera topic -> a MediaStreamTrack X2 can consume.
  *
- * The canvas is sized to the first frame that arrives, so it matches whatever
- * Unity is actually publishing rather than a guess. captureStream(fps) then
- * samples it: the canvas is repainted on every ROS frame and sampled on the
- * stream's own clock, so a slow camera repeats frames rather than stalling the
- * track -- which matters, because X2 stops generating without a source.
+ * The canvas is sized to the first frame. captureStream(fps) samples it on its
+ * own clock, so a slow camera repeats frames instead of stalling the track
+ * (X2 stops generating without a source).
  */
 export class UnitySource {
   constructor(ros, topic, { fps = 24, throttleMs = 0 } = {}) {
@@ -61,7 +46,7 @@ export class UnitySource {
   start() {
     this.ros.subscribe(this.topic, "sensor_msgs/msg/Image", (msg) => {
       const img = imageToImageData(msg, this.ctx);
-      if (!img) return;                      // unsupported encoding, or short
+      if (!img) return;
       if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
         this.canvas.width = img.width;
         this.canvas.height = img.height;
@@ -72,9 +57,8 @@ export class UnitySource {
       this.onFrame(this.frames, img.width, img.height);
     }, this.throttleMs);
 
-    // A zero-sized canvas produces a track with no frames, and the model then
-    // waits forever for a source it will never get. Give it something to
-    // sample until the first ROS frame lands.
+    // A zero-sized canvas yields a track with no frames; give it a placeholder
+    // size until the first ROS frame lands.
     if (!this.canvas.width) { this.canvas.width = 16; this.canvas.height = 16; }
 
     const stream = this.canvas.captureStream(this.fps);
@@ -93,16 +77,11 @@ export class UnitySource {
 /**
  * X2's output track -> /world_model/image_raw.
  *
- * Publishing at `fps` rather than per rendered frame: perception is capped at
- * 12 Hz and the scorer at 10, so anything faster is JSON on a websocket that
- * nothing reads. `maxWidth` downscales before publishing for the same reason
- * -- a 1080p frame is ~6 MiB before base64 adds a third.
+ * Publishes at `fps` (perception is capped at 12 Hz, the scorer at 10) and
+ * downscales to `maxWidth` to keep websocket payloads small.
  *
- * STAMPS: publish time, not the source frame's. WebRTC does not carry the
- * association, and this matches what x2_bridge_node.py did. It means the
- * scorer pairs a prediction with the labels nearest in ARRIVAL time; with a
- * moving rover and a model several frames behind, treat tight IoU differences
- * with suspicion until the label camera is stamped and matched properly.
+ * Stamps are the publish time, not the source frame's, since WebRTC does not
+ * carry that association. Consumers pair frames by arrival time.
  */
 export class X2Sink {
   constructor(ros, topic = "/world_model/image_raw",
@@ -116,14 +95,8 @@ export class X2Sink {
     this.video.muted = true;
     this.video.playsInline = true;
     this.video.autoplay = true;
-    // Visually hidden, but IN the document -- a <video> that is never
-    // attached to the DOM has its srcObject play() resolve fine, but Chrome
-    // (and most browsers) never actually advance its decode pipeline for a
-    // WebRTC MediaStream on a detached element: videoWidth/videoHeight stay
-    // 0 forever, _tick() below keeps bailing out on that check, and nothing
-    // is ever published -- with no error anywhere, since play() itself did
-    // not fail. X2MainVideoView (the pane that DOES show the repaint) works
-    // for exactly the opposite reason: it is actually mounted on screen.
+    // Hidden but attached to the DOM: browsers do not decode a WebRTC stream
+    // on a detached <video>, so videoWidth/Height would stay 0.
     this.video.style.cssText =
       "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;";
     this.canvas = document.createElement("canvas");
@@ -140,8 +113,6 @@ export class X2Sink {
     try {
       await this.video.play();
     } catch (e) {
-      // Autoplay policy only blocks audible media; a muted video should never
-      // land here, but a failure to start is silent otherwise.
       throw new Error("could not start the output video element: " + e.message);
     }
     this.ros.advertise(this.topic, "sensor_msgs/msg/Image");
@@ -151,7 +122,7 @@ export class X2Sink {
 
   _tick() {
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
-    if (!vw || !vh) return;                   // no frame decoded yet
+    if (!vw || !vh) return;
 
     const scale = this.maxWidth && vw > this.maxWidth ? this.maxWidth / vw : 1;
     const w = Math.round(vw * scale), h = Math.round(vh * scale);
@@ -226,9 +197,7 @@ export class X2RosBridge {
       await this.sink.attach(outTrack);
     });
 
-    // The panel and the director both publish here, verbatim. A single changed
-    // word invalidates the comparison (BUILD_SPEC 5.3), so this forwards the
-    // string exactly as received and only enforces X2's own 1000-char cap.
+    // Forward prompts verbatim; only enforce X2's 1000-char cap.
     this.ros.subscribe(o.promptTopic, "std_msgs/msg/String", (msg) => {
       const text = (msg.data || "").trim();
       if (!text) return;
@@ -241,8 +210,7 @@ export class X2RosBridge {
         .catch((e) => this.log("set_prompt failed: " + e.message));
     });
 
-    // Keeps the panel's BRIDGE card alive, and says plainly that the frames
-    // are coming through a browser rather than x2_bridge_node.
+    // Periodic state for the control panel's BRIDGE card.
     this.ros.advertise(o.stateTopic, "std_msgs/msg/String");
     this._state = setInterval(() => this._publishState(), 1000);
   }
@@ -255,9 +223,7 @@ export class X2RosBridge {
         via: "browser (myworld)",
         source_frames: s ? s.frames : 0,
         output_frames: k ? k.published : 0,
-        // Only once a frame has actually been published. A fresh <canvas> is
-        // 300x150, and reporting that as the model's output resolution puts a
-        // plausible, entirely invented number on the panel.
+        // Omitted until a frame is published (a fresh canvas is 300x150).
         width: k && k.published ? k.canvas.width : undefined,
         height: k && k.published ? k.canvas.height : undefined,
         prompt: this.prompt,

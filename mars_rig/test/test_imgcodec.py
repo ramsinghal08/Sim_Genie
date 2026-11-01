@@ -1,9 +1,4 @@
-"""Image <-> numpy without cv_bridge.
-
-These exist because cv_bridge raised `KeyError: 16` from inside a publish call
-when a pip-installed OpenCV 5 shadowed ROS's OpenCV 4 -- CV_8UC3 is 64 in one
-and 16 in the other. Nothing in that traceback said "you have two OpenCVs".
-"""
+"""Image <-> numpy without cv_bridge (which raises KeyError on mixed OpenCV versions)."""
 
 import numpy as np
 import pytest
@@ -36,8 +31,7 @@ def test_bgr8_is_reordered_both_ways():
 
 
 def test_row_padding_is_sliced_not_reshaped():
-    """A publisher that aligns rows sends step > width*channels. Reshaping
-    straight to (h, w, c) shears the image diagonally instead of failing."""
+    """Row padding (step > width*channels) must be stripped, not sheared."""
     width, height, pad = 3, 2, 5
     step = width * 3 + pad
     rows = [bytes([1, 1, 1, 2, 2, 2, 3, 3, 3]) + b"\xff" * pad,
@@ -65,8 +59,7 @@ def test_mono_widens_to_three_identical_channels():
 
 
 def test_single_channel_takes_the_first_channel_not_a_luminance_mix():
-    """Class ids widened to three channels must come back as the same ids.
-    A luminance mix would turn an id of 2 into something that is not an id."""
+    """Class ids widened to three channels must come back unchanged (no luminance mix)."""
     ids = np.zeros((1, 2, 3), np.uint8)
     ids[0, 0] = (2, 2, 2)
     ids[0, 1] = (1, 1, 1)
@@ -96,7 +89,7 @@ def test_shape_must_match_the_encoding():
 
 
 class FakeImageMsg:
-    """Stands in for sensor_msgs/Image -- five fields and a payload."""
+    """Stands in for sensor_msgs/Image."""
     height = width = step = 0
     encoding = ""
     is_bigendian = 0
@@ -118,8 +111,7 @@ def test_msg_helpers_round_trip():
 
 
 def test_a_label_mask_survives_the_topic_unchanged():
-    """The scorer quantises the mask back to class ids, so anything the
-    transport does to those flat colours lands straight in the IoU."""
+    """The scorer quantises the mask back to class ids, so transport must not alter colours."""
     from mars_rig.imgcodec import fill_msg, msg_to_rgb
     from mars_rig.labels import DEFAULT_PALETTE, LabelSpace
     from mars_rig.perception import colourise

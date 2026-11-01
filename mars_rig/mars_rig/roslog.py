@@ -1,49 +1,23 @@
 #!/usr/bin/env python3
-"""
-roslog.py -- log at a severity chosen at runtime, without tripping rclpy.
+"""roslog.py: log at a runtime-chosen severity without tripping rclpy.
 
-THE TRAP
---------
-rclpy caches a logging context per CALL SITE and refuses to let the severity
-change under it:
+rclpy caches a logging context per call site (function, file, line) and raises
+`ValueError: Logger severity cannot be changed between calls` if a second
+severity goes through the same line, e.g. `getattr(logger, level)(msg)`. That
+fires on the first mismatched severity, killing the node.
 
-    ValueError: Logger severity cannot be changed between calls.
-
-The call site is `CallerId(function_name, file_path, line_number, last_index)`,
-built from the first frame outside rclpy (`_find_caller`). So this, which looks
-entirely reasonable, is a bug:
-
-    getattr(self.get_logger(), level)(msg)          # one line, every severity
-    lvl = logger.info if ok else logger.warn        # one line, two severities
-    lvl(message)
-
-Every severity resolves to the same CallerId, the context keeps whichever
-severity happened to go through first, and the next one at a different severity
-raises -- from inside the logging call, killing the node.
-
-It is a nasty one because it needs two different severities through one line to
-show up, so it survives every short test and fires later. In this rig it killed
-the director on its first warning, and the same pattern sat in the X2 bridge's
-`generation_stopped` handler, which only runs during a live paid session.
-
-THE FIX
--------
-Give every severity its own physical line. That is all `emit` is.
+`emit` gives each severity its own physical line. Do not collapse it into a
+dict lookup or getattr.
 """
 
 from __future__ import annotations
 
-#: Aliases we accept, mapped to what we actually call.
+#: Accepted level names.
 _LEVELS = ("debug", "info", "warn", "warning", "error", "fatal")
 
 
 def emit(logger, level: str, message: str) -> None:
-    """Log `message` at `level`.
-
-    Each branch is a separate line on purpose: that is what gives rclpy a
-    distinct CallerId per severity. Do not collapse this into a dict lookup or
-    a getattr -- that is precisely the bug this exists to avoid.
-    """
+    """Log `message` at `level`, one call site per severity."""
     level = (level or "info").lower()
     if level == "debug":
         logger.debug(message)

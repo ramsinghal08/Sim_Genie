@@ -1,7 +1,4 @@
-"""IoU maths, checked against numbers worked out by hand.
-
-BUILD_SPEC.md section 8, test 2. These run with no ROS: `pytest mars_rig/test`.
-"""
+"""IoU maths, checked against hand-computed numbers. No ROS needed."""
 
 import numpy as np
 import pytest
@@ -66,8 +63,7 @@ def test_disjoint_prediction_is_zero(space):
 
 
 def test_absent_class_is_skipped_not_scored(space):
-    """A class in neither image has an empty union. 0 punishes perception for a
-    class it was never shown; 1 rewards it for the same. Both are wrong."""
+    """A class in neither image has an empty union and is skipped, not scored."""
     ids = np.zeros((4, 4), np.uint8)
     ids[:] = space.id_of["drivable"]
     per = iou_per_class(ids, ids, space.scored_ids)
@@ -88,16 +84,14 @@ def test_all_classes_absent_gives_none(space):
 
 
 def test_quantise_tolerates_compression_drift(space):
-    """Nearest-colour, not equality: a resize or an encode moves a flat label
-    colour off its exact palette value and equality would silently score 0."""
+    """Nearest-colour, not equality: resizes and encodes shift flat label colours."""
     img = np.zeros((2, 2, 3), np.uint8)
     img[:] = (12, 240, 9)            # nearly (0, 255, 0)
     assert (space.quantise(img) == space.id_of["drivable"]).all()
 
 
 def test_quantise_rejects_colours_that_match_nothing(space):
-    """Beyond max_distance a pixel becomes unlabelled rather than being forced
-    into the least-wrong class."""
+    """Beyond max_distance a pixel becomes unlabelled."""
     tight = LabelSpace(DEFAULT_PALETTE, scored=("drivable",), max_distance=20.0)
     img = np.zeros((2, 2, 3), np.uint8)
     img[:] = (128, 128, 128)

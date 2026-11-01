@@ -2,23 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// captureStream is widely supported but still missing from some DOM lib
-// typings; declare the surface we use (plus Firefox's mozCaptureStream).
+// captureStream is missing from some DOM lib typings (plus Firefox's
+// mozCaptureStream).
 type CapturableVideo = HTMLVideoElement & {
   captureStream?: () => MediaStream;
   mozCaptureStream?: () => MediaStream;
 };
 
-// Video file -> a `source` track. Rather than uploading the clip, we play it
-// in a <video> element and grab its frames with captureStream(); this
-// component *produces* that track (a single owner publishes it — see
-// useSourcePublisher). The same element is the "original" pane in the stage,
-// so what you see is literally what the model receives.
-//
-// The clip plays and loops from the moment it is selected: X2 consumes source
-// frames and starts generating on its own once a prompt is set and frames
-// are arriving, so a continuously-playing source is exactly the contract the
-// model expects.
+// Video file -> `source` track. The clip plays and loops in a <video> whose
+// frames are captured with captureStream(); useSourcePublisher publishes the
+// track. The same element is the "original" pane in the stage.
 export function VideoSource({
   videoUrl,
   onTrack,
@@ -29,7 +22,7 @@ export function VideoSource({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Capture the clip's frames into a track once metadata is available.
+  // Capture frames once metadata is available.
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !videoUrl) return;
@@ -46,7 +39,7 @@ export function VideoSource({
       }
       const track = capture.call(v).getVideoTracks()[0] ?? null;
       if (!track) return;
-      track.contentHint = "detail"; // hold resolution; adapt framerate
+      track.contentHint = "detail";
       captured = track;
       onTrack(track);
     };

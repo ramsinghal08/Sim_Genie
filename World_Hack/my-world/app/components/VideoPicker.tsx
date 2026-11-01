@@ -4,9 +4,8 @@ import { useRef, useState } from "react";
 import { PRESET_CLIPS, type PresetClip } from "@/app/lib/clips";
 import { cn, EYEBROW, FOCUS_RING } from "./ui";
 
-// Setup-phase picker for the "video" input source. Picking a preset or a local
-// file hands a playable URL up to the workspace; the stage's input pane then
-// plays it and streams its frames into the `source` track (see VideoSource).
+// Picker for the "video" source: a preset or local file hands a URL up, and
+// the stage plays and streams it (see VideoSource).
 export function VideoPicker({
   onSelect,
 }: {
@@ -20,7 +19,7 @@ export function VideoPicker({
     if (!file) return;
     setName(file.name);
     onSelect(URL.createObjectURL(file), file.name);
-    // Clear the native value so re-picking the same file fires onChange.
+    // Allow re-picking the same file.
     if (inputRef.current) inputRef.current.value = "";
   }
 

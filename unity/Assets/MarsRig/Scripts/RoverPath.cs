@@ -10,23 +10,12 @@ namespace MarsRig
     /// <summary>
     /// Drives the rover along a fixed scripted path and publishes its pose.
     ///
-    /// WHY THE POSE IS A PURE FUNCTION OF TIME
-    /// ---------------------------------------
-    /// BUILD_SPEC 5.1: the path must be identical every run, because identical
-    /// motion is what makes a score change attributable to the visual condition
-    /// alone. If two runs see different rocks at different distances, the IoU
-    /// difference between them is partly geometry and there is no way to
-    /// separate the two afterwards.
+    /// The pose is a pure function of elapsed time so the path is identical
+    /// every run; otherwise score differences would partly reflect geometry
+    /// rather than the visual condition. Integrating Time.deltaTime would
+    /// drift with frame hitches and machine differences.
     ///
-    /// Integrating velocity with Time.deltaTime does NOT give that. A frame
-    /// hitch, a different machine, or the editor stealing a frame changes the
-    /// accumulated distance, so the rover ends up somewhere slightly different
-    /// each run and nothing reports a problem. Evaluating position directly
-    /// from elapsed time removes the frame rate from the answer entirely.
-    ///
-    /// This is deliberately NOT teleop and deliberately does not subscribe to
-    /// /cmd_vel. If the path is ever driven from ROS instead, it goes to Unity
-    /// -- never to X2, which has no coordinate system (BUILD_SPEC 2).
+    /// This is not teleop and does not subscribe to /cmd_vel.
     /// </summary>
     public class RoverPath : MonoBehaviour
     {
@@ -103,8 +92,7 @@ namespace MarsRig
 
             if (faceAlongPath)
             {
-                // Look a little ahead rather than at the next waypoint, so the
-                // heading turns smoothly through a corner instead of snapping.
+                // Look slightly ahead so the heading turns smoothly at corners.
                 var ahead = PointAt(loop ? Mathf.Repeat(distance + 0.5f, _total)
                                          : Mathf.Min(distance + 0.5f, _total));
                 var forward = ahead - position;
@@ -144,11 +132,8 @@ namespace MarsRig
                 header = RosTime.Header(frameId),
                 pose = new PoseMsg
                 {
-                    // Unity is left-handed Y-up, ROS is right-handed Z-up.
-                    // To<FLU>() is the package's own conversion, with implicit
-                    // operators to PointMsg and QuaternionMsg. Using it rather
-                    // than a hand-written axis swap means the sign convention
-                    // is theirs to get right, and it already is.
+                    // Unity is left-handed Y-up; ROS is right-handed Z-up.
+                    // To<FLU>() is the package's coordinate conversion.
                     position = transform.position.To<FLU>(),
                     orientation = transform.rotation.To<FLU>(),
                 },

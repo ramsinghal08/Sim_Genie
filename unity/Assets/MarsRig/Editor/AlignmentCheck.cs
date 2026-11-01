@@ -7,25 +7,16 @@ namespace MarsRig.EditorTools
     /// <summary>
     /// Mars Rig > Check Camera Alignment
     ///
-    /// BUILD_SPEC 5.1: "Camera 1 and Camera 2 must be pixel-identical... Verify
-    /// by overlaying two screenshots and confirming rocks land in the same
-    /// place. If this fails, every number downstream is wrong. Do this before
-    /// anything else and show me the result."
+    /// Confirms that the RGB and label passes line up and that the label pass
+    /// is clean. DualCapture renders both from one camera in one frame, so
+    /// camera drift cannot occur; this check catches the remaining failures:
     ///
-    /// DualCapture renders both passes from one camera in one frame, so the
-    /// classic ways two cameras drift apart cannot happen here. This check is
-    /// what confirms that rather than assuming it, and it catches the failures
-    /// that survive the single-camera design:
-    ///
-    ///   - a label material that is not unlit, so the flat colour shifts and
-    ///     the scorer assigns it to a neighbouring class
+    ///   - a label material that is not unlit, shifting the flat colour
     ///   - fog or post-processing tinting the label pass
-    ///   - an object with no SemanticLabel, invisible in the answer key
-    ///   - rocks too small or too distant for obstacle IoU to mean anything
+    ///   - an object with no SemanticLabel, missing from the answer key
+    ///   - rocks too small or too distant for obstacle IoU to be meaningful
     ///
-    /// It writes three PNGs and prints one number. Put that number in the
-    /// write-up: "we measured our own ground truth" is the answer to the
-    /// question a judge asks next.
+    /// It writes three PNGs and prints an edge-agreement score.
     /// </summary>
     public static class AlignmentCheck
     {
@@ -116,9 +107,8 @@ namespace MarsRig.EditorTools
             var labelPixels = labels.GetPixels32();
             var rgbPixels = rgb.GetPixels32();
 
-            // 1. Class coverage. Obstacle below ~1% of frame means the rocks are
-            //    too small or too far for obstacle IoU to carry any signal, and
-            //    the sweep will look flat for a reason that is not the model's.
+            // 1. Class coverage. Obstacle below ~1% of the frame is too small
+            //    for obstacle IoU to carry signal.
             int drivable = 0, obstacle = 0, sky = 0, unlabelled = 0, offPalette = 0;
             foreach (var p in labelPixels)
             {
@@ -129,8 +119,8 @@ namespace MarsRig.EditorTools
                     case MarsClass.Sky: sky++; break;
                     default: unlabelled++; break;
                 }
-                // A label pixel far from every palette colour means something
-                // tinted the label pass -- lighting, fog, or a non-unlit material.
+                // A label pixel far from every palette colour means the pass was
+                // tinted by lighting, fog, or a non-unlit material.
                 if (distance > 40 * 40) offPalette++;
             }
 
@@ -159,9 +149,7 @@ namespace MarsRig.EditorTools
                     obstacle / (float)total));
             }
 
-            // 2. Edge agreement. Every label boundary should sit on a real edge
-            //    in the RGB. This is the number that says the two views describe
-            //    the same geometry.
+            // 2. Edge agreement. Label boundaries should sit on RGB edges.
             var rgbEdges = Edges(rgbPixels, w, h);
             var labelEdges = Edges(labelPixels, w, h);
 

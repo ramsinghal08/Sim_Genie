@@ -1,33 +1,15 @@
 #!/usr/bin/env python3
-"""
-topicwatch.py -- say it out loud when a subscription never receives anything.
+"""topicwatch.py: warn when a subscription never receives anything.
 
-WHY THIS EXISTS
----------------
-A ROS 2 subscription to a topic nobody publishes is completely silent. It is
-not an error, it is not a warning, it is not even a debug line: the node comes
-up, logs "subscribed to /unity/camera/image_raw", and then waits forever. From
-the outside that is indistinguishable from a working rig with a slow camera,
-and every downstream symptom points somewhere else -- an empty panel pane looks
-like a browser problem, a missing score looks like a scoring bug.
+A ROS 2 subscription to a topic nobody publishes is silent, which makes a wrong
+topic name look like a slow camera. The watchdog distinguishes the causes:
 
-It cost us a demo evening. Unity was publishing `/panther/camera_left/image_raw`
-and every node in this rig was subscribed to `/unity/camera/image_raw`. Nothing
-in any log said so.
+    no publisher at all   -> wrong topic name, node not running, or a different
+                             ROS_DOMAIN_ID; lists same-type topics that exist
+    publishers, no data   -> QoS mismatch, or a stalled publisher
+    data, but not paired  -> synchronised pairs only; see scoring_node
 
-There are exactly three reasons a subscription stays quiet, and they need
-different fixes, so the watchdog distinguishes them:
-
-    no publisher at all   -> the topic NAME is wrong (or the node is not
-                             running, or ROS_DOMAIN_ID differs). Prints the
-                             topics of the same type that DO exist, because the
-                             right name is nearly always one of them.
-    publishers, no data   -> a QoS mismatch, or the publisher is stalled. The
-                             publisher's own `ros2 topic hz` looks fine.
-    data, but not paired  -> only for synchronised pairs; see scoring_node.
-
-USE
----
+Usage:
     self.watch = TopicWatchdog(self, "/unity/camera/image_raw",
                                "sensor_msgs/msg/Image", "camera")
     ...
@@ -41,9 +23,7 @@ from __future__ import annotations
 class TopicWatchdog:
     """Warn, on a timer, while `topic` has produced no messages.
 
-    Goes quiet as soon as the first message arrives, and says so once. Costs
-    one timer per watched topic and nothing at all on the message path beyond
-    a boolean store.
+    Stops after the first message arrives, logging that once.
     """
 
     def __init__(self, node, topic: str, type_name: str, label: str,
@@ -57,15 +37,13 @@ class TopicWatchdog:
         self._timer = node.create_timer(period, self._check)
 
     def mark(self) -> None:
-        """Called from the subscription callback. Cheap on purpose."""
+        """Call from the subscription callback."""
         self.count += 1
         if not self._announced:
             self._announced = True
             self.node.get_logger().info(
                 f"{self.label}: first message on {self.topic}")
             self._timer.cancel()
-
-    # ------------------------------------------------------------------
 
     def _check(self) -> None:
         if self.count:
@@ -74,9 +52,7 @@ class TopicWatchdog:
 
         publishers = self.node.count_publishers(self.topic)
         if publishers:
-            # The subscription exists, a publisher exists, and nothing crosses.
-            # In this rig that is nearly always QoS: a BEST_EFFORT publisher
-            # will not talk to a RELIABLE subscriber, and neither side logs it.
+            # Publisher exists but nothing crosses: usually a QoS mismatch.
             self.node.get_logger().warn(
                 f"{self.label}: {self.topic} has {publishers} publisher(s) but "
                 f"no message has arrived. Check QoS with "
@@ -99,11 +75,8 @@ class TopicWatchdog:
                 f"source running, and on the same ROS_DOMAIN_ID?")
 
     def same_type_topics(self) -> list:
-        """Topics of the watched type that currently have a publisher.
-
-        Sorted, and the watched topic itself is excluded -- it is the thing
-        that is missing, so listing it back is noise.
-        """
+        """Sorted topics of the watched type that have a publisher, excluding
+        the watched topic itself."""
         out = []
         for name, types in self.node.get_topic_names_and_types():
             if self.type_name not in types or name == self.topic:

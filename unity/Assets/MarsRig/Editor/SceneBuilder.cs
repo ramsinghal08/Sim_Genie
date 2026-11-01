@@ -7,25 +7,21 @@ namespace MarsRig.EditorTools
     /// <summary>
     /// Builds the scored scene from a menu item, deterministically.
     ///
-    /// Mars Rig > Build Scored Scene        the one we measure
-    /// Mars Rig > Build Calibration Scene   same terrain WITH the markers and
-    ///                                      the cone, for one structure check
+    /// Mars Rig > Build Scored Scene        the scene that is measured
+    /// Mars Rig > Build Calibration Scene   same terrain with the ArUco markers
+    ///                                      and traffic cone, for a one-off
+    ///                                      structure check
     ///
-    /// Built from script rather than assembled by hand so it is reproducible:
-    /// same seed, same terrain, same rocks, same path, every time and on every
-    /// machine. A scene someone dragged together in the editor cannot be
-    /// rebuilt after a mistake, and BUILD_SPEC 5.1 wants identical geometry
-    /// across runs so that a score change is attributable to the visuals alone.
-    ///
-    /// BUILD_SPEC 5.1 also says the ArUco markers and the traffic cone must NOT
-    /// be in the scored scene -- naming the rover in a prompt once turned every
-    /// marker into a robot (3.5). They live only in the calibration scene.
+    /// Built from script so that the same seed gives the same terrain, rocks
+    /// and path on every machine, keeping score changes attributable to the
+    /// visual condition. The markers and cone must not appear in the scored
+    /// scene; they live only in the calibration scene.
     /// </summary>
     public static class SceneBuilder
     {
         const int Seed = 20260822;
-        const float TerrainRadius = 300f;   // reaches past the far clip, so no
-        const int TerrainGrid = 240;        // black band at the horizon
+        const float TerrainRadius = 300f;   // extends past the far clip, no black
+        const int TerrainGrid = 240;        // band at the horizon
         const int RockCount = 180;
 
         [MenuItem("Mars Rig/Build Scored Scene")]
@@ -60,16 +56,13 @@ namespace MarsRig.EditorTools
             light.type = LightType.Directional;
             light.intensity = 1.1f;
             light.color = new Color(1f, 0.95f, 0.88f);
-            // A moderately low sun: long enough shadows to be interesting,
-            // high enough that the baseline is not already a hard condition.
+            // Moderately low sun: visible shadows without making the baseline hard.
             go.transform.rotation = Quaternion.Euler(35f, 140f, 0f);
 
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.32f, 0.28f, 0.26f);
-            // Fog would hide the terrain edge, but it also flattens contrast at
-            // distance, which is one of the conditions we are trying to MEASURE
-            // rather than bake in. The terrain simply extends past the far clip
-            // instead.
+            // No fog: it flattens distant contrast, which is a measured condition.
+            // The terrain extends past the far clip instead.
             RenderSettings.fog = false;
         }
 
@@ -120,8 +113,7 @@ namespace MarsRig.EditorTools
             mr.sharedMaterial = MakeMaterial("MarsGround", new Color(0.55f, 0.34f, 0.24f), 0.95f);
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
 
-            // The ground IS the drivable class. Everything standing on it that
-            // a rover would have to go around is Obstacle.
+            // The ground is the drivable class; objects standing on it are Obstacle.
             go.AddComponent<SemanticLabel>().marsClass = MarsClass.Drivable;
             return go;
         }
@@ -129,8 +121,7 @@ namespace MarsRig.EditorTools
         /// <summary>Terrain height: gentle dunes, one slope, one crater lip.</summary>
         public static float Height(float x, float z)
         {
-            // Perlin is deterministic for a given coordinate, so the terrain is
-            // identical on every machine without storing a heightmap.
+            // Perlin noise is deterministic, so no heightmap needs storing.
             float dunes =
                 Mathf.PerlinNoise(x * 0.010f + 100f, z * 0.010f + 100f) * 2.2f +
                 Mathf.PerlinNoise(x * 0.045f + 300f, z * 0.045f + 300f) * 0.45f;
@@ -160,9 +151,7 @@ namespace MarsRig.EditorTools
 
             for (int i = 0; i < RockCount; i++)
             {
-                // Clustered near the path rather than spread over 300 m, so the
-                // camera actually sees enough obstacle pixels for the obstacle
-                // IoU to mean anything.
+                // Clustered near the path so the camera sees enough obstacle pixels.
                 float x = (float)(rng.NextDouble() * 70.0 - 35.0);
                 float z = (float)(rng.NextDouble() * 90.0 - 15.0);
                 float scale = (float)(0.25 + rng.NextDouble() * 1.5);
@@ -174,8 +163,7 @@ namespace MarsRig.EditorTools
                 rock.transform.rotation = Quaternion.Euler(
                     (float)(rng.NextDouble() * 360), (float)(rng.NextDouble() * 360),
                     (float)(rng.NextDouble() * 360));
-                // Flattened and unevenly scaled so they read as rocks rather
-                // than as a field of identical balls.
+                // Flattened, unevenly scaled so they read as rocks.
                 rock.transform.localScale = new Vector3(
                     scale, scale * (float)(0.5 + rng.NextDouble() * 0.4),
                     scale * (float)(0.7 + rng.NextDouble() * 0.6));
@@ -231,8 +219,7 @@ namespace MarsRig.EditorTools
             body.transform.localScale = new Vector3(0.8f, 0.4f, 1.1f);
             body.GetComponent<MeshRenderer>().sharedMaterial =
                 MakeMaterial("RoverBody", new Color(0.7f, 0.7f, 0.72f), 0.4f);
-            // The rover's own body is Obstacle if it appears in frame at all.
-            // The camera looks forward and down, so normally it does not.
+            // The rover body is Obstacle if it appears in frame (normally it does not).
             body.AddComponent<SemanticLabel>().marsClass = MarsClass.Obstacle;
 
             var path = rover.AddComponent<RoverPath>();
@@ -262,21 +249,13 @@ namespace MarsRig.EditorTools
             var cam = camGo.AddComponent<Camera>();
             cam.fieldOfView = 60f;
             cam.nearClipPlane = 0.05f;
-            // Past the terrain radius, so the terrain always reaches the
-            // horizon and there is no black band where it stops.
+            // Beyond the terrain radius so terrain always reaches the horizon.
             cam.farClipPlane = 500f;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.78f, 0.66f, 0.52f);
-            // MSAA off: an antialiased edge is a blend of two class colours,
-            // which is a class that exists in neither. The label pass would
-            // carry a one-pixel fringe of nonsense around every rock.
-            //
-            // Motion blur is the same failure with a longer tail -- it smears a
-            // moving rock across the RGB frame while the label frame keeps its
-            // hard edge, so the two disagree along every edge and the ceiling
-            // drops for a reason nobody can see. There is no post-processing on
-            // this camera; if you add a post-process volume later, exclude
-            // motion blur (BUILD_SPEC 5.1).
+            // MSAA off: antialiased edges blend two class colours.
+            // No post-processing on this camera; if a volume is added, exclude
+            // motion blur, which makes RGB and label edges disagree.
             cam.allowMSAA = false;
             cam.tag = "MainCamera";
 

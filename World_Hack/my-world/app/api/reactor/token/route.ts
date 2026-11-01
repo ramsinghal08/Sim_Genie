@@ -1,49 +1,24 @@
 import { NextResponse } from "next/server";
 import { REACTOR_API_URL } from "@/app/lib/config";
 
-// The model this app drives. The minted JWT is scoped to it: the token
-// can create sessions for this model only, and can act only on the
-// sessions it created - nothing else on the account.
+// The minted JWT is scoped to this model and to the sessions it creates.
 const MODEL_NAME = "xmax/x2";
 
-// Session budget for one token - how many sessions it may ever create
-// (closed sessions still count). The browser caches the token for its
-// whole lifetime, so leave room for a burst of reconnects.
+// Max sessions per token (closed sessions still count). The browser caches the
+// token, so leave room for reconnects.
 const MAX_SESSIONS = 10;
 
-// How long we ask Reactor to make the JWT valid for (the server caps
-// this at 6h). One hour keeps a cached token - and its remaining
-// session budget - from outliving a normal visit.
+// Requested JWT lifetime (the server caps it at 6h).
 const TOKEN_LIFETIME_SECONDS = 60 * 60;
 
-// Safety margin on the cache lifetime so an in-flight request doesn't
-// race with the real expiry.
+// Cache-lifetime margin so a request does not race the real expiry.
 const CACHE_SKEW_SECONDS = 60;
 
-// Mint a session-scoped Reactor JWT and return it with a `Cache-Control` header
-// that lets the browser reuse it for the rest of its lifetime.
-//
-// Why GET and not POST?
-//   POST responses are not cached by browsers. We expose this route
-//   as GET so the browser's HTTP cache can serve repeat calls
-//   transparently - no localStorage, no JWT parsing in client code.
-//   The route handler still POSTs to Reactor internally.
-//
-// Why `private`?
-//   Tells shared caches (CDNs, corporate proxies) not to store the
-//   response. JWTs are per-user and must never be reused across users.
-//
-// Why derive `max-age` from `expires_at`?
-//   Reactor decides the actual token lifetime (it caps the request
-//   at its server max). Reading `expires_at` off the response means
-//   the cache window is always in sync with whatever the server
-//   actually granted, with a one-minute safety skew baked in.
-//
-// Why `authorization_details`?
-//   This is what downscopes the token. Without it the JWT carries the
-//   API key's full user-level access; with it the browser only ever
-//   holds a credential for MODEL_NAME sessions it started itself, so a
-//   leaked token is a bounded loss instead of an account key.
+// Mints a session-scoped Reactor JWT, returned with a private Cache-Control
+// header so the browser reuses it until expiry. Exposed as GET because browsers
+// do not cache POST responses; `max-age` is derived from the server-granted
+// `expires_at`. `authorization_details` downscopes the token to MODEL_NAME
+// sessions it started itself.
 export async function GET() {
   const apiKey = process.env.REACTOR_API_KEY;
   if (!apiKey) {

@@ -8,13 +8,7 @@ interface SwitchProps {
   "aria-labelledby"?: string;
 }
 
-/**
- * A binary on/off switch. Unlike a form checkbox it reads as a live control:
- * the track fills with the brand color when on and the thumb slides across, so
- * a state change is legible at a glance. `role="switch"` + `aria-checked` keep
- * it a proper toggle for assistive tech; the underlying <button> gives keyboard
- * activation for free.
- */
+/** Binary on/off switch (`role="switch"`) built on a <button>. */
 export function Switch({
   checked,
   onChange,

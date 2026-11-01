@@ -8,25 +8,16 @@ import {
 } from "@/app/lib/types";
 import { cn, Panel } from "./ui";
 
-// Live readout of the model's drag pointer — the raw `set_pointer` fields as
-// the model echoes them back in every `state_update` snapshot. Dragging on
-// the edited output streams set_pointer(x, y, active); what renders here is
-// the round trip, not the local gesture, so the numbers are exactly what the
-// model is steering with. Available in every source mode.
-//
-// The pointer rides the same state_update as the rest of the session, but it
-// changes every frame of a drag. Rather than reduce it into the shared
-// X2UiState (which would re-render the whole workspace ~30 Hz), this panel
-// subscribes to the stream itself and keeps the churn local — only these
-// three fields re-render while a drag is in flight.
+// Live readout of the model's drag pointer, as echoed back in `state_update`
+// (the round trip, not the local gesture). Subscribes to the stream itself
+// instead of using X2UiState so ~30 Hz updates re-render only this panel.
 export function PointerPanel() {
   const { status } = useX2();
   const [readout, setReadout] = useState<X2PointerReadout>(
     DEFAULT_POINTER_READOUT,
   );
 
-  // Track only the pointer fields; return the previous object when they are
-  // unchanged so a non-pointer state_update doesn't re-render this panel.
+  // Return the previous object when unchanged to skip re-renders.
   useX2StateUpdate((msg) => {
     setReadout((prev) =>
       prev.x === msg.pointer_x &&
@@ -37,8 +28,7 @@ export function PointerPanel() {
     );
   });
 
-  // Snap back to the model's defaults on disconnect, matching the reset the
-  // workspace applies to X2UiState (the model stops echoing once it's gone).
+  // Reset to defaults on disconnect.
   useEffect(() => {
     if (status === "disconnected") setReadout(DEFAULT_POINTER_READOUT);
   }, [status]);
@@ -47,8 +37,6 @@ export function PointerPanel() {
 
   return (
     <Panel label="Pointer">
-      {/* Named after set_pointer's params (x, y, active); state_update
-          echoes the same values as pointer_x / pointer_y / pointer_active. */}
       <dl className="grid grid-cols-3 gap-2 font-mono text-xs">
         <Field name="x" value={x.toFixed(3)} live={active} />
         <Field name="y" value={y.toFixed(3)} live={active} />
