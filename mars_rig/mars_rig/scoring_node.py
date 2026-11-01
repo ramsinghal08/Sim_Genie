@@ -4,7 +4,7 @@ scoring_node.py -- IoU(prediction, Unity ground truth).
 
 The only node in the graph that is allowed to see the label camera. Perception
 never subscribes to it; if it did, the whole experiment would be measuring
-nothing (BUILD_SPEC.md section 2).
+nothing.
 
 TOPICS
 ------
@@ -26,7 +26,7 @@ SANITY CHECK BEFORE TRUSTING ANY NUMBER
 ---------------------------------------
 Score the plain Unity render against its own labels. That is the CEILING. If it
 is low, perception or label alignment is broken and no world-model result means
-anything (BUILD_SPEC section 5.5).
+anything.
 """
 
 import json

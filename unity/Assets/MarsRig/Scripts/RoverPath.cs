@@ -12,7 +12,7 @@ namespace MarsRig
     ///
     /// WHY THE POSE IS A PURE FUNCTION OF TIME
     /// ---------------------------------------
-    /// BUILD_SPEC 5.1: the path must be identical every run, because identical
+    /// the design requirements: the path must be identical every run, because identical
     /// motion is what makes a score change attributable to the visual condition
     /// alone. If two runs see different rocks at different distances, the IoU
     /// difference between them is partly geometry and there is no way to
@@ -26,7 +26,7 @@ namespace MarsRig
     ///
     /// This is deliberately NOT teleop and deliberately does not subscribe to
     /// /cmd_vel. If the path is ever driven from ROS instead, it goes to Unity
-    /// -- never to X2, which has no coordinate system (BUILD_SPEC 2).
+    /// -- never to X2, which has no coordinate system.
     /// </summary>
     public class RoverPath : MonoBehaviour
     {

@@ -22,9 +22,9 @@ import { StreamSource } from "./StreamSource";
 //     so the camera keeps streaming while generation runs.
 //   - Video and image modes only pick media here; the stage plays/repeats
 //     it and hands the captured track up the same way. Image mode streams
-//     a still image as a constant feed — the drag-to-animate setup: prompt
+//     a still image as a constant feed - the drag-to-animate setup: prompt
 //     it, then steer the subject with the pointer.
-//   - Generating: the source is fixed for the run — Reset stops generation
+//   - Generating: the source is fixed for the run - Reset stops generation
 //     (and clears prompt, reference image, and pointer) to change it.
 export function SourcePanel({
   generating,
@@ -56,7 +56,7 @@ export function SourcePanel({
   //
   // `pending` holds the value the user just asked for and drives the switch
   // immediately (optimistic). It clears when the echo confirms it, or after a
-  // timeout that falls back to the echoed truth — the command send is
+  // timeout that falls back to the echoed truth - the command send is
   // fire-and-forget (it never rejects, and a rejected command comes back as a
   // separate command_error banner), so without the timeout a request the model
   // never applied would leave the switch stuck showing a lie.
@@ -85,7 +85,7 @@ export function SourcePanel({
   };
 
   const handleModeChange = (m: X2SourceMode) => {
-    if (generating) return; // source is fixed once a run has started — reset to switch
+    if (generating) return; // source is fixed once a run has started - reset to switch
     onModeChange(m);
   };
 
@@ -159,7 +159,7 @@ export function SourcePanel({
             Reset
           </Button>
           <span className="text-xs text-zinc-500">
-            Editing — reset to change the source
+            Editing - reset to change the source
           </span>
         </div>
       ) : (

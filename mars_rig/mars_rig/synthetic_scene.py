@@ -4,7 +4,7 @@ synthetic_scene.py -- a stand-in Unity, for rehearsing the loop without one.
 
 WHAT THIS IS FOR
 ----------------
-Unity is the longest pole (BUILD_SPEC.md 5.1). Everything downstream of it --
+Unity is the longest pole. Everything downstream of it --
 perception, the scorer, the director, the panel -- can be built and exercised
 before it exists, provided something produces an RGB frame and a pixel-aligned
 label frame. That is all this does.
@@ -19,7 +19,7 @@ written down. Real numbers need Unity and a live session.
 
 The one property it does share with the real thing: the RGB and the labels are
 generated from the same geometry in the same call, so they are pixel-identical
-by construction -- which is exactly the property BUILD_SPEC 5.1 says to verify
+by construction -- which is exactly the property the design requirements says to verify
 in Unity before trusting anything downstream.
 """
 
@@ -67,7 +67,7 @@ class SyntheticScene:
 
     Fixed path and fixed seed on purpose: identical motion every run is what
     makes a score change attributable to the visual condition alone
-    (BUILD_SPEC 5.1).
+   .
     """
 
     def __init__(self, width=640, height=384, n_rocks=14, seed=7,

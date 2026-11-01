@@ -1,6 +1,6 @@
 "use client";
 
-// XMAX X2 — REFERENCE FRONTEND
+// XMAX X2 - REFERENCE FRONTEND
 //
 // X2 is a real-time streaming video-to-video editing model: it edits
 // whatever arrives on the `source` track, live, steered by a text
@@ -12,11 +12,11 @@
 // exposes typed commands and per-message hooks, so the app reads the
 // same as the sibling examples:
 //
-//   <X2Provider getJwt={fetchToken} />       — session lifecycle
-//   useX2()                                  — status + typed commands
-//   setPrompt({ prompt })                    — model commands
-//   useX2StateUpdate((msg) => …)             — model → client messages
-//   <X2MainVideoView />                      — the live output
+//   <X2Provider getJwt={fetchToken} />       - session lifecycle
+//   useX2()                                  - status + typed commands
+//   setPrompt({ prompt })                    - model commands
+//   useX2StateUpdate((msg) => …)             - model → client messages
+//   <X2MainVideoView />                      - the live output
 import { useEffect, useRef, useState } from "react";
 import {
   X2Provider,
@@ -155,7 +155,7 @@ function Workspace() {
 
   // Bumped on a user reset and used as a React key on children that hold
   // local draft state (prompt draft, reference preview), remounting them in
-  // step with the model's reset — which clears prompt, reference image, and
+  // step with the model's reset - which clears prompt, reference image, and
   // pointer server-side.
   const [resetNonce, setResetNonce] = useState(0);
 
@@ -174,7 +174,7 @@ function Workspace() {
   useX2GenerationStopped((msg) => {
     setStageCleared(true);
     // A `reference_image_changed` stop is an automatic restart (a fresh
-    // generation_started follows immediately) — keep drafts. Only a user
+    // generation_started follows immediately) - keep drafts. Only a user
     // reset remounts the draft-holding children.
     if (msg.reason === "reset") setResetNonce((n) => n + 1);
   });
@@ -253,7 +253,7 @@ function Workspace() {
                 publish back to ROS
                 {rosLoop && (
                   <>
-                    {" — "}
+                    {" - "}
                     {rosOut.publishing
                       ? `/world_model/image_raw · ${rosOut.published} frames${
                           rosOut.size ? ` · ${rosOut.size}` : ""

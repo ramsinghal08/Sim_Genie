@@ -7,7 +7,7 @@ import { Panel, cn, EYEBROW, FOCUS_RING, errorMessage } from "./ui";
 
 // The runtime feeds the reference image to the model as a driving video, and
 // its GStreamer pipeline scrambles the color channels when a streamed frame's
-// width or height isn't a multiple of 4 — an arbitrarily-sized upload shears
+// width or height isn't a multiple of 4 - an arbitrarily-sized upload shears
 // the output into desaturated streaks, worst right after a mid-run swap. Floor
 // each dimension to the nearest multiple of 4 and center-crop to it before
 // upload (shaves at most 3px per side, no visible change). The demo presets
@@ -61,7 +61,7 @@ async function toMod4(file: File): Promise<Blob> {
 //
 // The reference conditions a run from its first block. Setting it while
 // generating restarts the stream automatically (generation_stopped with
-// reason `reference_image_changed`, then a fresh generation_started) — no
+// reason `reference_image_changed`, then a fresh generation_started) - no
 // manual reset needed. The parent keys this component on the reset nonce: a
 // user reset clears the reference server-side, and the remount drops the
 // local preview in step.
@@ -201,7 +201,7 @@ export function ReferenceImage({
         <p className="mt-2 text-xs text-zinc-500">
           Accepted ({accepted.width}×{accepted.height}).{" "}
           {generating
-            ? "Conditioning the current run — replacing it restarts the stream."
+            ? "Conditioning the current run - replacing it restarts the stream."
             : "Will condition the next run."}
         </p>
       )}

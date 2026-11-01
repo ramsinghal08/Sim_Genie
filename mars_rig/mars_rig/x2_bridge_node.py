@@ -50,7 +50,7 @@ KEEP_BACKLOG -- read this before your scoring runs
 
 Use true for the results table. Use false for the live demo.
 
-MEDIA API -- verified against reactor-sdk 1.1.1, resolves BUILD_SPEC 9.1
+MEDIA API -- verified against reactor-sdk 1.1.1
 ------------------------------------------------------------------------
     help(Reactor.publish_track) ->  async publish_track(self, name: 'str') -> 'Track'
 
@@ -112,7 +112,7 @@ class X2Bridge(Node):
         # what Unity's DualCapture actually publishes, which is raw Image.
         # Flip to true only alongside a real CompressedImage publisher; raw
         # rgb8 at 832x512x24fps is ~30 MiB/s, so drop rgbFps or the resolution
-        # instead of assuming the link will carry it (BUILD_SPEC 5.2).
+        # instead of assuming the link will carry it.
         self.declare_parameter("input_compressed", False)
         self.declare_parameter("initial_prompt", "")
         self.declare_parameter("keep_backlog", True)
@@ -123,7 +123,7 @@ class X2Bridge(Node):
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("mock", False)
         self.declare_parameter("mock_source", "")
-        # Track names are schema-confirmed (BUILD_SPEC 3.1); parameters only so a
+        # Track names are schema-confirmed; parameters only so a
         # schema change does not need a code change.
         self.declare_parameter("source_track", "source")
         self.declare_parameter("output_track", "main_video")

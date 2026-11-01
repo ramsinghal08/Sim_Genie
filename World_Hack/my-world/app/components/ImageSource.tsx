@@ -13,15 +13,15 @@ const STREAM_FPS = 24;
 
 // The streamed frame is a fixed 16:9 canvas. The model picks its output
 // resolution bucket from the source stream's aspect ratio, so pinning the
-// canvas to 16:9 pins the whole run — preview pane, source stream, and
-// edited output — to the same landscape shape regardless of the picked
+// canvas to 16:9 pins the whole run - preview pane, source stream, and
+// edited output - to the same landscape shape regardless of the picked
 // image's own aspect.
 const FRAME_WIDTH = 1280;
 const FRAME_HEIGHT = 720;
 
 // Still image -> a constant `source` stream. The image is drawn to a canvas
 // and captured with canvas.captureStream(24); the draw loop keeps repainting
-// the same frame so the capturer keeps emitting it — from the model's side
+// the same frame so the capturer keeps emitting it - from the model's side
 // this is indistinguishable from a video of a motionless scene, which is
 // exactly the drag-to-animate setup: a still subject the pointer brings to
 // life. This component *produces* the track; useSourcePublisher publishes
@@ -56,7 +56,7 @@ export function ImageSource({
         return;
       }
       // Cover-crop the image into the 16:9 frame (center crop, no
-      // distortion, no letterbox bars for the model to "edit") — the same
+      // distortion, no letterbox bars for the model to "edit") - the same
       // resize-and-crop the model applies to source frames anyway.
       const scale = Math.max(
         FRAME_WIDTH / img.naturalWidth,

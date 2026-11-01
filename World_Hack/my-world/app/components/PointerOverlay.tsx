@@ -12,7 +12,7 @@ const SEND_INTERVAL_MS = 33;
 // pointer down, its position is streamed to the model as `set_pointer`
 // (x, y, active) and the edited subject follows the drag; releasing sends
 // active=false. Coordinates are normalized to the *output frame*, which the
-// pane letterboxes (object-fit: contain) — outputAspect (from
+// pane letterboxes (object-fit: contain) - outputAspect (from
 // generation_started's width/height) is used to map from the pane's box to
 // the visible video content, so 0..1 means the frame, not the letterbox.
 export function PointerOverlay({
@@ -162,7 +162,7 @@ export function PointerOverlay({
         (active ? "cursor-crosshair" : "pointer-events-none")
       }
     >
-      {/* The drag marker: a press ripple (one-shot — the marker mounts on
+      {/* The drag marker: a press ripple (one-shot - the marker mounts on
           pointerdown and unmounts on release, so the animation runs once per
           drag), a brand-glow ring that follows the gesture, and a center dot
           on the exact coordinate being streamed. */}

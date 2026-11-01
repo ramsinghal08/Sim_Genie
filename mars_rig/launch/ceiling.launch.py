@@ -1,4 +1,4 @@
-"""ceiling.launch.py -- the sanity check BUILD_SPEC 5.5 says to run first.
+"""ceiling.launch.py -- the sanity check to run first.
 
 Perception on the PLAIN Unity render, scored against Unity's own labels. No X2,
 no prompts, no credits. Whatever IoU this reports is the CEILING: every

@@ -6,9 +6,9 @@ perception_node.py -- runs segmentation on whatever the world model produced.
 
 This node NEVER subscribes to /unity/labels. That is the whole point of the
 rig: perception sees only what a camera would see, and the scorer is the only
-thing holding the answer key (BUILD_SPEC.md section 2).
+thing holding the answer key.
 
-MODEL CHOICE IS STILL OPEN -- see BUILD_SPEC 9.2. `method` defaults to the
+MODEL CHOICE IS STILL OPEN -- see the design requirements `method` defaults to the
 classical baseline in perception.py so the loop closes today. Point it at the
 MRT stack or an off-the-shelf model by adding a branch to `segment()`; the
 topic contract here does not change.
@@ -121,7 +121,7 @@ class PerceptionNode(Node):
             f"out={g('output_topic').value} classes={self.space.names}")
         if self.method == "baseline_cv":
             self.get_logger().warn(
-                "baseline_cv is the classical stand-in (BUILD_SPEC 9.2 is "
+                "baseline_cv is the classical stand-in (the design requirements is "
                 "still open) -- results are a baseline, not the MRT stack")
 
     def _rate_limited(self) -> bool:

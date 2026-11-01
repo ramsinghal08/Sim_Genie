@@ -9,7 +9,7 @@ import { VideoSource } from "./VideoSource";
 // The stage.
 //   - webcam mode: a single pane of the model's edited output (the webcam
 //     self-view lives in the Source panel).
-//   - video / image mode: side by side — the media you're streaming in on
+//   - video / image mode: side by side - the media you're streaming in on
 //     the left, the edited output on the right. The left pane owns the
 //     published `source` track (a playing clip, or a still image repeated
 //     at 24 fps), so it is literally the frames the model edits.

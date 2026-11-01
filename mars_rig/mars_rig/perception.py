@@ -8,7 +8,7 @@ WHAT THIS IS, AND IS NOT
 texture and shadow within the ground band. It exists so the rig can be wired
 end to end and scored today. It is a STAND-IN.
 
-BUILD_SPEC.md section 9.2 -- our MRT stack or an off-the-shelf model
+the design requirements -- our MRT stack or an off-the-shelf model
 (SegFormer-B0 / DeepLabV3-MobileNetV3) -- is still open and is not decided
 here. `segment()` dispatches on a method name so the answer drops in as one
 more branch without touching the node, the topics, or the scorer.

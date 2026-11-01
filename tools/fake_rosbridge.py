@@ -16,7 +16,7 @@ The panel is a judged deliverable, and everything it displays arrives over a
 websocket. Waiting for Unity and a live session before finding out whether it
 renders is the wrong order: this lets the page be built, styled and rehearsed
 against realistic traffic, and it makes a panel regression something you can
-catch in ten seconds rather than at 18:00 on demo night.
+catch in seconds.
 
 Every value it emits is synthetic and the panel labels it as such -- the state
 payload carries mock:true, and the detail payload carries fake:true.

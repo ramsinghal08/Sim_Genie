@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sim Genie</title>
-<meta name="description" content="Sim Genie — we can't take our rover to Mars, so we bring Mars to the rover, and break it on purpose until perception fails.">
+<meta name="description" content="Sim Genie - we can't take our rover to Mars, so we bring Mars to the rover, and break it on purpose until perception fails.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e8703a'/%3E%3Ccircle cx='11' cy='12' r='3' fill='%23b4552a'/%3E%3Ccircle cx='21' cy='20' r='4' fill='%23b4552a'/%3E%3C/svg%3E">
 <!--
   Landing page for the rig. Single file, plain JS, no framework, no CDN --
   same reason the control panel is: it has to open from a laptop with no
-  network at 18:00 on demo night.
+  network.
 
   This file used to BE the control panel (rosbridge connect box, three video
   panes, prompt box, director/bridge tables). That moved to control.html so
@@ -173,17 +173,17 @@
 
 <main>
   <section class="hero" style="border-top:none">
-    <div class="eyebrow">Mars Rover Team · IIT Bombay — <b>perception stress-test rig</b></div>
+    <div class="eyebrow">Mars Rover Team · IIT Bombay - <b>perception stress-test rig</b></div>
     <h1>Sim Genie</h1>
     <p class="tagline">
-      We can't take our rover to Mars, so we bring Mars to the rover —
+      We can't take our rover to Mars, so we bring Mars to the rover -
       <em>and then make it worse on purpose</em>, until perception breaks.
     </p>
     <div class="actions">
       <a class="btn primary" href="control.html">Open Control Panel</a>
       <a class="btn ghost" href="#more">Learn how it works ↓</a>
     </div>
-    <div class="fineprint">Unity render · X2 repaint · segmentation, live in one panel — no ROS client, no install</div>
+    <div class="fineprint">Unity render · X2 repaint · segmentation, live in one panel - no ROS client, no install</div>
   </section>
 
   <section id="more">
@@ -195,7 +195,7 @@
       carry no ground truth and only cover conditions we happened to drive
       through. Sim Genie combines both: a simulated world that knows exactly
       where every rock is, repainted frame-by-frame into photoreal Mars
-      conditions by a live generative video model — so perception is tested
+      conditions by a live generative video model - so perception is tested
       against the rare, dangerous cases a rover actually has to survive: low
       sun on loose regolith, dust washing out contrast, a shadowed crater rim.
     </p>
@@ -210,7 +210,7 @@
       <div class="step">
         <div class="n">02</div>
         <h3>Reactor X2</h3>
-        <p>A live video model repaints Unity's frames into photorealistic Mars — appearance only, never geometry.</p>
+        <p>A live video model repaints Unity's frames into photorealistic Mars - appearance only, never geometry.</p>
       </div>
       <div class="arrow">→</div>
       <div class="step">
@@ -229,23 +229,23 @@
 
   <section>
     <p class="kicker">What you get</p>
-    <h2>Not a better rover — a catalogue of how it fails</h2>
+    <h2>Not a better rover - a catalogue of how it fails</h2>
     <p class="lede">The deliverable is a reproducible catalogue of the conditions under which perception breaks, with numbers, not a demo that only ever shows the sunny path.</p>
     <div class="grid">
       <div class="card">
         <span class="icon">🌪️</span>
         <h3>An escalation ladder</h3>
-        <p>Dust storms, low sun, glare, sensor noise and more — dozens of hand-tuned conditions, ordered from mild to total failure.</p>
+        <p>Dust storms, low sun, glare, sensor noise and more - dozens of hand-tuned conditions, ordered from mild to total failure.</p>
       </div>
       <div class="card">
         <span class="icon">🎥</span>
         <h3>Three views, one panel</h3>
-        <p>Unity's render, X2's repaint and the segmentation overlay, live, side by side — type a condition and watch it change.</p>
+        <p>Unity's render, X2's repaint and the segmentation overlay, live, side by side - type a condition and watch it change.</p>
       </div>
       <div class="card">
         <span class="icon">🧭</span>
         <h3>An honest baseline</h3>
-        <p>Every run is measured against a ceiling — perception on the plain render — so a bad number always has a cause, not a shrug.</p>
+        <p>Every run is measured against a ceiling - perception on the plain render - so a bad number always has a cause, not a shrug.</p>
       </div>
     </div>
   </section>
@@ -261,7 +261,7 @@
         perception survives it. Real Mars photography has no ground truth and
         only covers the conditions someone happened to capture. Sim Genie's
         answer is to keep Unity's exact, known geometry and let a live video
-        model handle appearance — so the hard, rare conditions can be
+        model handle appearance - so the hard, rare conditions can be
         manufactured on demand and still scored against a real answer key.
       </p>
     </details>
@@ -269,7 +269,7 @@
     <details>
       <summary>What does perception actually see?</summary>
       <p>
-        Only the repainted camera feed — never the label camera. If perception
+        Only the repainted camera feed - never the label camera. If perception
         could see the ground truth, the whole experiment would be measuring
         nothing. A separate scorer, which never touches perception, is the
         only thing comparing predictions against Unity's answer key.
@@ -281,7 +281,7 @@
       <ul>
         <li>Three live panes: Unity's render, X2's repaint, and the segmentation overlay.</li>
         <li>A reserved space to dock the Unity Play-mode window alongside them.</li>
-        <li>A condition box that publishes straight to the rig — type a prompt, or load the full catalogue.</li>
+        <li>A condition box that publishes straight to the rig - type a prompt, or load the full catalogue.</li>
         <li>Director and bridge status, so you can see what condition is running and whether the session is live.</li>
       </ul>
     </details>
@@ -289,7 +289,7 @@
     <details>
       <summary>How is this run, end to end?</summary>
       <p>
-        <code>./rig</code> is the single entry point — install, build, test,
+        <code>./rig</code> is the single entry point - install, build, test,
         and run, with an offline mode that proves the whole loop with no ROS,
         no Unity and no credits spent. See <code>README.md</code> in this
         repo for the full walkthrough.
@@ -299,7 +299,7 @@
 </main>
 
 <footer>
-  <span>Sim Genie — a Mars perception stress-test rig</span>
+  <span>Sim Genie - a Mars perception stress-test rig</span>
   <span id="stamp"></span>
 </footer>
 
@@ -335,7 +335,7 @@ async function checkPageFreshness(mineOverride) {
   const key = "home-reloaded-" + served;
   try {
     if (sessionStorage.getItem(key)) {
-      if (stamp) { stamp.textContent = "page " + document.lastModified + " — stale"; }
+      if (stamp) { stamp.textContent = "page " + document.lastModified + " - stale"; }
       return "stale";
     }
     sessionStorage.setItem(key, "1");

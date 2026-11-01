@@ -2,7 +2,7 @@
 """
 fake_score_publisher.py -- a score with no pipeline behind it.
 
-For BUILD_SPEC.md section 8 test 4: run the director against this and confirm
+For the design requirements test 4: run the director against this and confirm
 results.csv and results.md appear and populate, with no Unity, no X2, no
 perception and no API credits spent.
 

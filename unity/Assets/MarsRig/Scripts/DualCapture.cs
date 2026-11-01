@@ -13,7 +13,7 @@ namespace MarsRig
     ///
     /// WHY ONE CAMERA AND NOT TWO
     /// --------------------------
-    /// BUILD_SPEC 5.1 says Camera 1 and Camera 2 must be pixel-identical --
+    /// the design requirements says Camera 1 and Camera 2 must be pixel-identical --
     /// same transform, FOV, resolution and frame -- and that if this fails
     /// every number downstream is wrong. Two camera objects can drift apart in
     /// six different ways: someone nudges a transform, changes an FOV, edits
@@ -27,7 +27,7 @@ namespace MarsRig
     /// being the only thing standing between us and silent garbage.
     ///
     /// Perception never sees the label topic. Only scoring_node subscribes to
-    /// it (BUILD_SPEC 2).
+    /// it.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public class DualCapture : MonoBehaviour
@@ -41,7 +41,7 @@ namespace MarsRig
         public string frameId = "unity_cam";
 
         [Header("Capture")]
-        [Tooltip("X2's native source pacing. Do not change without reading BUILD_SPEC 3.1.")]
+        [Tooltip("X2's native source pacing. Do not change without reading the design requirements")]
         public int rgbFps = 24;
 
         [Tooltip("The scorer caps at 10 Hz, so publishing labels faster is pure bandwidth.")]
@@ -66,7 +66,7 @@ namespace MarsRig
         public int jpegQuality = 80;
 
         [Tooltip("PNG is lossless, so classes survive it exactly, and a flat-colour " +
-                 "label image compresses enormously. Raw matches BUILD_SPEC 5.5 as " +
+                 "label image compresses enormously. Raw matches the design requirements as " +
                  "written; set scoring_node's ground_truth_compressed to match.")]
         public bool labelAsPng = false;
 

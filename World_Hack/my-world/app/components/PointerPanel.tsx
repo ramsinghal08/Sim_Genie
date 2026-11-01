@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/types";
 import { cn, Panel } from "./ui";
 
-// Live readout of the model's drag pointer — the raw `set_pointer` fields as
+// Live readout of the model's drag pointer - the raw `set_pointer` fields as
 // the model echoes them back in every `state_update` snapshot. Dragging on
 // the edited output streams set_pointer(x, y, active); what renders here is
 // the round trip, not the local gesture, so the numbers are exactly what the
@@ -17,7 +17,7 @@ import { cn, Panel } from "./ui";
 // The pointer rides the same state_update as the rest of the session, but it
 // changes every frame of a drag. Rather than reduce it into the shared
 // X2UiState (which would re-render the whole workspace ~30 Hz), this panel
-// subscribes to the stream itself and keeps the churn local — only these
+// subscribes to the stream itself and keeps the churn local - only these
 // three fields re-render while a drag is in flight.
 export function PointerPanel() {
   const { status } = useX2();

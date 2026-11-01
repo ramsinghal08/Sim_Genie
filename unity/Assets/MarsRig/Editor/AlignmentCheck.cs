@@ -7,7 +7,7 @@ namespace MarsRig.EditorTools
     /// <summary>
     /// Mars Rig > Check Camera Alignment
     ///
-    /// BUILD_SPEC 5.1: "Camera 1 and Camera 2 must be pixel-identical... Verify
+    /// the design requirements: "Camera 1 and Camera 2 must be pixel-identical... Verify
     /// by overlaying two screenshots and confirming rocks land in the same
     /// place. If this fails, every number downstream is wrong. Do this before
     /// anything else and show me the result."

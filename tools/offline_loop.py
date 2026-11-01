@@ -59,7 +59,7 @@ def log(level, msg):
 def ceiling(scene, space, args):
     """Score perception on the PLAIN render against its own labels.
 
-    BUILD_SPEC 5.5: this is the ceiling. If it is low, perception or label
+    the design requirements: this is the ceiling. If it is low, perception or label
     alignment is broken and no world-model result below it means anything.
     """
     vals = []
@@ -148,7 +148,7 @@ def _stamp_simulated(path):
     with open(path, encoding="utf-8") as fh:
         body = fh.read()
     banner = (
-        "> **SIMULATED — NOT A MEASUREMENT.** Produced by "
+        "> **SIMULATED - NOT A MEASUREMENT.** Produced by "
         "`tools/offline_loop.py` against a synthetic scene and a stand-in for "
         "X2. Proves the loop, not the numbers.\n\n"
     )

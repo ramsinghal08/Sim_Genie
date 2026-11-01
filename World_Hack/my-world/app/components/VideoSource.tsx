@@ -11,7 +11,7 @@ type CapturableVideo = HTMLVideoElement & {
 
 // Video file -> a `source` track. Rather than uploading the clip, we play it
 // in a <video> element and grab its frames with captureStream(); this
-// component *produces* that track (a single owner publishes it — see
+// component *produces* that track (a single owner publishes it - see
 // useSourcePublisher). The same element is the "original" pane in the stage,
 // so what you see is literally what the model receives.
 //

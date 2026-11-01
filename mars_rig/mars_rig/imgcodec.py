@@ -16,7 +16,7 @@ OpenCV 5 renumbered the type constants -- CV_8UC3 is 64 there and 16 in
 OpenCV 4 -- so a pip-installed OpenCV 5 shadowing ROS's OpenCV 4 is enough to
 take the bridge down mid-run. Nothing in the traceback says "you have two
 OpenCVs", and `pip install ultralytics` is enough to cause it, which is a
-plausible thing for someone to do here while deciding BUILD_SPEC 9.2.
+plausible thing for someone to do here while deciding the design requirements
 
 We move 8-bit images in four encodings. That is a handful of numpy reshapes,
 and doing it here means no version of anything can produce that failure again.

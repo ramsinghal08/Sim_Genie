@@ -1,6 +1,6 @@
 """stress_rig.launch.py -- the whole graph, in one command.
 
-    # BUILD_SPEC 8, test 6: full loop, mock bridge, no credits, no Unity
+    # the design requirements: full loop, mock bridge, no credits, no Unity
     ros2 launch mars_rig stress_rig.launch.py
 
     # test 4: director against a fake score, nothing else running
@@ -14,7 +14,7 @@
 Every optional piece is a launch argument, because rosbridge_server and
 web_video_server are separate apt packages: a launch file that hard-requires
 them fails as a whole on a machine that has not installed them, and that is not
-a failure anyone wants to debug at 18:00 on demo night.
+a failure worth debugging at runtime.
 """
 
 import os
@@ -52,7 +52,7 @@ def generate_launch_description():
         DeclareLaunchArgument("rosbridge", default_value="true",
                               description="needed by panel/index.html"),
         DeclareLaunchArgument("web_video_server", default_value="true",
-                              description="one of the two BUILD_SPEC 9.5 image transports"),
+                              description="one of the two the design requirements image transports"),
         DeclareLaunchArgument("mode", default_value="sweep",
                               description="sweep | adaptive | llm"),
         DeclareLaunchArgument("lang", default_value="zh"),
@@ -111,7 +111,7 @@ def generate_launch_description():
             parameters=[{"method": arg("perception_method")}],
         ),
         # The scorer is the only node that sees the label camera. Perception is
-        # deliberately not given the topic (BUILD_SPEC 2).
+        # deliberately not given the topic.
         Node(
             package="mars_rig", executable="scoring_node", name="scoring_node",
             output="screen",

@@ -227,7 +227,7 @@ export class X2RosBridge {
     });
 
     // The panel and the director both publish here, verbatim. A single changed
-    // word invalidates the comparison (BUILD_SPEC 5.3), so this forwards the
+    // word invalidates the comparison, so this forwards the
     // string exactly as received and only enforces X2's own 1000-char cap.
     this.ros.subscribe(o.promptTopic, "std_msgs/msg/String", (msg) => {
       const text = (msg.data || "").trim();

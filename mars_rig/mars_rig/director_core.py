@@ -63,7 +63,7 @@ class Catalog:
         """The exact string that goes to X2.
 
         Forwarded verbatim from here on. A single wrong word invalidates the
-        run (BUILD_SPEC 5.3), so nothing downstream edits this.
+        run, so nothing downstream edits this.
         """
         text = prompt.get(lang) or prompt["en"]
         if prompt.get("prefix"):
@@ -334,10 +334,10 @@ class DirectorCore:
         """
         try:
             if value != value:              # NaN
-                return "—"
+                return "-"
             return format(float(value), spec)
         except (TypeError, ValueError):
-            return "—"
+            return "-"
 
     def write(self) -> None:
         if not self.results:
@@ -393,14 +393,14 @@ class DirectorCore:
             mark = " †" if r.get("within_baseline_noise") else ""
             per = "".join(
                 f" {self._num(r['per_class'][n])} |" if n in r.get("per_class", {})
-                else " — |"
+                else " - |"
                 for n in names)
-            # One dash, not "—–—" and "—%": an unscored row should read as
+            # One dash, not "-–-" and "-%": an unscored row should read as
             # empty at a glance, not as broken formatting.
             rng = (f"{self._num(r['min_iou'])}–{self._num(r['max_iou'])}"
-                   if r.get("scored", True) else "—")
+                   if r.get("scored", True) else "-")
             drop = (f"{self._num(r['drop_vs_baseline_pct'], '+.1f')}%"
-                    if r.get("scored", True) else "—")
+                    if r.get("scored", True) else "-")
             lines.append(
                 f"| {r['id']} | {r['name']} | {r['difficulty']} | "
                 f"{self._num(r['mean_iou'])}{mark} |"
@@ -414,7 +414,7 @@ class DirectorCore:
                 f"† Moved the score by less than the baseline's own frame-to-frame "
                 f"range ({band:.3f}), so this condition has not been shown to do "
                 f"anything. The rover is moving, so rock count, size and distance "
-                f"change from frame to frame even with no condition applied — that "
+                f"change from frame to frame even with no condition applied - that "
                 f"spread is the resolution limit of the whole experiment.",
             ]
             if quiet:

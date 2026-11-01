@@ -109,7 +109,7 @@ export function StreamSource({
       <div className="flex flex-col gap-2">
         <label className="flex flex-col gap-1">
           <span className="font-mono text-xs text-zinc-500">
-            MJPEG url — copy any “Stream” link from http://localhost:8080
+            MJPEG url - copy any “Stream” link from http://localhost:8080
           </span>
           <input
             value={url}
@@ -161,7 +161,7 @@ export function StreamSource({
         {running && !error && stats.bytes === 0 && (
           <p className="text-xs text-amber-400">
             Nothing has arrived yet. Check the stream plays on its own at{" "}
-            <code>http://localhost:8080</code> — if it does and this stays at
+            <code>http://localhost:8080</code> - if it does and this stays at
             zero, the app cannot reach it (set <code>WEB_VIDEO_SERVER_URL</code>
             {" "}if web_video_server is not on localhost:8080).
           </p>

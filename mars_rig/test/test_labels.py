@@ -1,6 +1,6 @@
 """IoU maths, checked against numbers worked out by hand.
 
-BUILD_SPEC.md section 8, test 2. These run with no ROS: `pytest mars_rig/test`.
+the design requirements. These run with no ROS: `pytest mars_rig/test`.
 """
 
 import numpy as np

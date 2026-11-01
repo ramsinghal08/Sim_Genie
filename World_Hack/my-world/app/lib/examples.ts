@@ -3,8 +3,8 @@ export interface PromptExample {
   prompt: string;
 }
 
-// Quick-prompt chips. Deliberately generic — no asset-specific nouns ("the
-// subject", not "the dog") — so they work against whatever source the user
+// Quick-prompt chips. Deliberately generic - no asset-specific nouns ("the
+// subject", not "the dog") - so they work against whatever source the user
 // brings; this is a remixable dev quick-start, not a scripted demo. Two of
 // the three are pointer-driven, to land the point that you steer this model
 // with your mouse.

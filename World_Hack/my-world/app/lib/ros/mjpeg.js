@@ -110,7 +110,7 @@ export class MjpegSource {
     const match = /boundary=([^;]+)/i.exec(contentType);
     if (!match) {
       this.onError(
-        `not an MJPEG stream — Content-Type is "${contentType || "(none)"}"`,
+        `not an MJPEG stream - Content-Type is "${contentType || "(none)"}"`,
       );
       return;
     }
@@ -166,7 +166,7 @@ export class MjpegSource {
 
         // A boundary that never matches would otherwise grow this forever.
         if (buf.length > 32 * 1024 * 1024) {
-          this.onError("no multipart boundary found in 32 MB — wrong stream format?");
+          this.onError("no multipart boundary found in 32 MB - wrong stream format?");
           return;
         }
       }

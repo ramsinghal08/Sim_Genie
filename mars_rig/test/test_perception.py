@@ -1,6 +1,6 @@
 """The classical baseline segmenter, and the loop it sits in.
 
-These do not assert that segmentation is GOOD -- BUILD_SPEC 9.2 is still open
+These do not assert that segmentation is GOOD -- the design requirements is still open
 and the model will change. They assert the contract downstream depends on:
 output shape, output encoding, and that the score moves the right way when the
 image degrades.
@@ -68,7 +68,7 @@ def test_a_rock_on_flat_ground_is_found(space):
 
 
 def test_scene_rgb_and_labels_are_pixel_aligned(space, scene):
-    """The synthetic stand-in for BUILD_SPEC 5.1's alignment check: both images
+    """The synthetic stand-in for the design requirements's alignment check: both images
     come out of one call over one geometry, so obstacle pixels in the labels
     are darker than the ground in the RGB at the same coordinates."""
     rgb, labels = scene.render(3.0)

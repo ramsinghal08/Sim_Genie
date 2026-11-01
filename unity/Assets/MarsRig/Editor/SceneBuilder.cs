@@ -14,10 +14,10 @@ namespace MarsRig.EditorTools
     /// Built from script rather than assembled by hand so it is reproducible:
     /// same seed, same terrain, same rocks, same path, every time and on every
     /// machine. A scene someone dragged together in the editor cannot be
-    /// rebuilt after a mistake, and BUILD_SPEC 5.1 wants identical geometry
+    /// rebuilt after a mistake, and the design requirements wants identical geometry
     /// across runs so that a score change is attributable to the visuals alone.
     ///
-    /// BUILD_SPEC 5.1 also says the ArUco markers and the traffic cone must NOT
+    /// the design requirements also says the ArUco markers and the traffic cone must NOT
     /// be in the scored scene -- naming the rover in a prompt once turned every
     /// marker into a robot (3.5). They live only in the calibration scene.
     /// </summary>
@@ -276,7 +276,7 @@ namespace MarsRig.EditorTools
             // hard edge, so the two disagree along every edge and the ceiling
             // drops for a reason nobody can see. There is no post-processing on
             // this camera; if you add a post-process volume later, exclude
-            // motion blur (BUILD_SPEC 5.1).
+            // motion blur.
             cam.allowMSAA = false;
             cam.tag = "MainCamera";
 

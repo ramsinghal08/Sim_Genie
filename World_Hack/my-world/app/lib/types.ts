@@ -1,5 +1,5 @@
 // The input source the client streams into the model. All three publish to
-// the `source` track — "webcam" sends the live webcam, "video" plays a chosen
+// the `source` track - "webcam" sends the live webcam, "video" plays a chosen
 // clip and streams its frames in, and "image" repeats a still image as a
 // constant 24 fps stream (the drag-to-animate setup from the model's demos:
 // the picture stays put until the pointer steers the subject). The model
@@ -12,7 +12,7 @@ export type X2SourceMode = "webcam" | "video" | "image" | "stream";
 
 // The UI's projection of the model's session, reduced from the `state_update`
 // snapshot the model broadcasts on connect and after every observable state
-// change — the model is the source of truth. `referenceAccepted` (the decoded
+// change - the model is the source of truth. `referenceAccepted` (the decoded
 // image's dimensions) is the one field carried from a discrete ack message
 // (`reference_image_accepted`), since the snapshot only says whether a
 // reference is set.

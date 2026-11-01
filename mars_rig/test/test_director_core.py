@@ -1,6 +1,6 @@
 """The director's phase machine and results writer, on a simulated clock.
 
-BUILD_SPEC.md section 8, test 4 -- but with no ROS and no waiting, so it runs
+the design requirements -- but with no ROS and no waiting, so it runs
 in CI in milliseconds instead of the minutes the real run takes.
 """
 
@@ -277,7 +277,7 @@ def test_absent_class_leaves_a_blank_cell_not_a_zero(catalog, tmp_path):
     assert rows[0]["iou_obstacle"] != ""
     assert rows[1]["iou_obstacle"] == "", "absent must be blank, never 0"
     md = (tmp_path / "results.md").read_text(encoding="utf-8")
-    assert "—" in md
+    assert "-" in md
 
 
 def test_an_unscored_run_says_so_instead_of_reporting_nan(catalog, tmp_path):

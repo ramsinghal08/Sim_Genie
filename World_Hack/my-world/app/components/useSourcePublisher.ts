@@ -11,7 +11,7 @@ import { errorMessage } from "./ui";
 //
 // Reconciliation is serialized: one loop at a time compares the desired
 // track (latest from the producer) with the published one and converges.
-// Switching tracks does NOT unpublish first — the SDK's publishTrack sends
+// Switching tracks does NOT unpublish first - the SDK's publishTrack sends
 // the `publish_track` control request and then replaceTrack()s the new
 // media onto the existing RTCRtpSender without renegotiating, so a direct
 // re-publish is the safe path. Unpublish only happens when the producer
@@ -27,7 +27,7 @@ export function useSourcePublisher(
   // What this hook believes is on the wire. Cleared when the transport
   // goes away (status leaves "ready") so the next ready re-publishes.
   const publishedRef = useRef<MediaStreamTrack | null>(null);
-  // True while a reconcile loop is in flight — guarantees a single writer.
+  // True while a reconcile loop is in flight - guarantees a single writer.
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -83,7 +83,7 @@ export function useSourcePublisher(
     };
   }, []);
 
-  // Free the slot if this hook owns it — on unmount, and when the store is
+  // Free the slot if this hook owns it - on unmount, and when the store is
   // torn down and rebuilt (new `unpublish` identity means the old transport
   // this hook published on is going away).
   useEffect(

@@ -3,7 +3,7 @@
 labels.py -- class palettes and IoU maths. Pure numpy, no rclpy.
 
 Deliberately free of ROS so the metric can be unit-tested on handmade PNGs
-without a running graph (BUILD_SPEC.md section 8, test 2). scoring_node.py is a
+without a running graph. scoring_node.py is a
 thin ROS wrapper over this file; if a number looks wrong, the bug is here and
 you can reproduce it in a plain python REPL.
 
@@ -35,7 +35,7 @@ DEFAULT_PALETTE: dict[str, tuple[int, int, int]] = {
 }
 
 #: Classes that count toward the headline mean IoU. `unlabelled` is ignored by
-#: definition (BUILD_SPEC section 5.5). `sky` is excluded because it is a large,
+#: definition. `sky` is excluded because it is a large,
 #: trivially separable region -- including it inflates the mean and hides
 #: exactly the ground/obstacle degradation this rig exists to measure.
 DEFAULT_SCORED: tuple[str, ...] = ("drivable", "obstacle")
@@ -128,7 +128,7 @@ def iou_per_class(
 
     An absent class has an empty union. Scoring it 0 punishes perception for a
     class it was never shown; scoring it 1 rewards it for the same. Both are
-    wrong, so it is skipped and excluded from the mean (BUILD_SPEC 5.5).
+    wrong, so it is skipped and excluded from the mean.
     """
     if pred_ids.shape != gt_ids.shape:
         raise ValueError(

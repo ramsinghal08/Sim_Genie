@@ -7,12 +7,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e8703a'/%3E%3Ccircle cx='11' cy='12' r='3' fill='%23b4552a'/%3E%3Ccircle cx='21' cy='20' r='4' fill='%23b4552a'/%3E%3C/svg%3E">
 <!--
   Control panel. Single file, plain JS, no framework, no CDN -- it has to open
-  from a laptop with no network at 18:00 on demo night.
+  from a laptop with no network.
 
   Talks to rosbridge_websocket directly over its JSON protocol:
       ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 
-  IMAGE TRANSPORT -- BUILD_SPEC 9.5 is still open, so BOTH are here and the
+  IMAGE TRANSPORT -- the design requirements is still open, so BOTH are here and the
   choice is a radio button rather than a decision baked into the file:
 
     web_video_server  an <img> pointed at an MJPEG stream. Lower latency, no
@@ -220,15 +220,15 @@
       </div>
 
       <div class="card">
-        <h3>Condition — published verbatim to /world_model/prompt</h3>
+        <h3>Condition - published verbatim to /world_model/prompt</h3>
         <div class="row" style="margin-bottom:8px">
-          <select id="preset" class="grow"><option value="">— load a catalog to pick a condition —</option></select>
+          <select id="preset" class="grow"><option value="">- load a catalog to pick a condition -</option></select>
           <input type="file" id="catalog" accept=".json" style="max-width:180px">
         </div>
-        <textarea id="prompt" placeholder="地面材质变为... — or paste any condition. Sent exactly as typed; nothing downstream edits it."></textarea>
+        <textarea id="prompt" placeholder="地面材质变为... - or paste any condition. Sent exactly as typed; nothing downstream edits it."></textarea>
         <div class="row" style="margin-top:8px">
           <button id="send" class="primary">send condition</button>
-          <span class="hint grow" id="promptHint">X2 applies this at the next block boundary — expect a few seconds before it takes visible effect.</span>
+          <span class="hint grow" id="promptHint">X2 applies this at the next block boundary - expect a few seconds before it takes visible effect.</span>
         </div>
       </div>
     </div>
@@ -347,11 +347,11 @@ function onDirector(json) {
   if (!d) return;
   const rows = [
     ["mode", d.mode], ["phase", d.phase],
-    ["condition", d.current_name ? `${d.current_id} · ${d.current_name}` : "—"],
-    ["difficulty", d.difficulty ?? "—"],
+    ["condition", d.current_name ? `${d.current_id} · ${d.current_name}` : "-"],
+    ["difficulty", d.difficulty ?? "-"],
     ["elapsed", (d.elapsed ?? 0) + "s"],
     ["progress", `${d.completed}/${d.total}`],
-    ["last mean IoU", d.last_iou === null || d.last_iou === undefined ? "—" : Number(d.last_iou).toFixed(3)],
+    ["last mean IoU", d.last_iou === null || d.last_iou === undefined ? "-" : Number(d.last_iou).toFixed(3)],
   ];
   $("director").innerHTML = rowsToHtml(rows);
 }
@@ -360,7 +360,7 @@ function onState(json) {
   const d = parsePayload(json, "/world_model/state");
   if (!d) return;
   const rows = [];
-  if (d.mock) rows.push(["<span class='bad-text'>MOCK — output is not from X2</span>", ""]);
+  if (d.mock) rows.push(["<span class='bad-text'>MOCK - output is not from X2</span>", ""]);
   rows.push(["generating", d.generating ? "yes" : "no"]);
   if (d.width) rows.push(["output", `${d.width}×${d.height}`]);
   if (d.keep_backlog !== undefined) rows.push(["keep_backlog", String(d.keep_backlog)]);
@@ -369,7 +369,7 @@ function onState(json) {
   $("state").innerHTML = rowsToHtml(rows);
 }
 
-// ---------- images: the two BUILD_SPEC 9.5 options ----------
+// ---------- images: the two the design requirements options ----------
 
 // Pane 1 is the only one bound to a topic Unity names itself -- panes 2 and 3
 // are rig-internal (/world_model/image_raw, /perception/mask) and never
@@ -614,9 +614,9 @@ $("send").onclick = () => {
   const text = $("prompt").value.trim();
   if (!text) return;
   if (text.length > 1000) {
-    $("promptHint").innerHTML = `<span class="bad-text">${text.length} chars — X2 caps at 1000 and the bridge will truncate.</span>`;
+    $("promptHint").innerHTML = `<span class="bad-text">${text.length} chars - X2 caps at 1000 and the bridge will truncate.</span>`;
   }
-  // Verbatim. A single changed word invalidates the comparison (BUILD_SPEC 5.3).
+  // Verbatim. A single changed word invalidates the comparison.
   send({ op: "publish", topic: TOPICS.prompt.topic, msg: { data: text } });
   setStatus("sent condition (" + text.length + " chars)", true);
 };
@@ -628,14 +628,14 @@ $("catalog").onchange = (ev) => {
   reader.onload = () => {
     let cat; try { cat = JSON.parse(reader.result); } catch (e) { return; }
     const sel = $("preset");
-    sel.innerHTML = '<option value="">— pick a condition —</option>';
+    sel.innerHTML = '<option value="">- pick a condition -</option>';
     (cat.prompts || []).forEach(p => {
       const o = document.createElement("option");
       o.value = p.zh || p.en;
       o.textContent = `${p.id} · ${p.name} (diff ${p.difficulty})`;
       sel.appendChild(o);
     });
-    setStatus(`catalog loaded — ${(cat.prompts || []).length} conditions`, true);
+    setStatus(`catalog loaded - ${(cat.prompts || []).length} conditions`, true);
   };
   reader.readAsText(file);
 };
@@ -683,7 +683,7 @@ async function checkPageFreshness(mineOverride) {
   const key = "panel-reloaded-" + served;
   try {
     if (sessionStorage.getItem(key)) {
-      $("stamp").textContent = "page " + document.lastModified + " — STALE";
+      $("stamp").textContent = "page " + document.lastModified + " - STALE";
       $("stamp").className = "bad-text";
       return "stale";
     }

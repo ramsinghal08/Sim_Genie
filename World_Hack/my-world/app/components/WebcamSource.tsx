@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button, errorMessage } from "./ui";
 
 // Webcam -> a `source` track. This component only *produces* the track (and
-// a small self-view in the Source panel); useSourcePublisher — the single
-// owner of the `source` slot — publishes it. It never calls
+// a small self-view in the Source panel); useSourcePublisher - the single
+// owner of the `source` slot - publishes it. It never calls
 // publish/unpublish itself, so switching to/from webcam mode can't race
 // another producer on the same slot. It stays mounted across the start
 // transition, so the camera keeps streaming while generation runs.

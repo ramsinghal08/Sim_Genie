@@ -371,7 +371,7 @@ servers_already_up() {
 cmd_director_test() {
     source_ros
     [ -d "$REPO/install/mars_rig" ] || die "not built. Run: ./rig build"
-    say "director against a fake score -- BUILD_SPEC 8, test 4"
+    say "director against a fake score -- the design requirements"
     ros2 launch mars_rig stress_rig.launch.py \
         fake_score:=true perception:=false settle_sec:=2.0 dwell_sec:=3.0 "$@"
 }

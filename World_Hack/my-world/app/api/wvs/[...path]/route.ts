@@ -17,7 +17,7 @@
 // THE QUERY STRING MUST BE REBUILT BY HAND, NOT PASSED THROUGH
 // --------------------------------------------------------------
 // `new URL(request.url).search` looked like the obvious way to forward the
-// query string, and it silently re-broke the exact failure BUILD_SPEC and
+// query string, and it silently re-broke the exact failure documented in
 // panel/index.html already warn about: Next's own URL parsing of the
 // incoming request re-encodes '/' in the query string, so `?topic=/unity/
 // camera/image_raw` arrives here as `?topic=%2Funity%2Fcamera%2Fimage_raw`.
