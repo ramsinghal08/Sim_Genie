@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
-"""
-perception_node.py -- runs segmentation on whatever the world model produced.
+"""perception_node.py: runs segmentation on the world model's output.
 
     /world_model/image_raw  ->  [ segmentation ]  ->  /perception/mask
 
-This node NEVER subscribes to /unity/labels. That is the whole point of the
-rig: perception sees only what a camera would see, and the scorer is the only
-thing holding the answer key.
+Never subscribes to /unity/labels: perception sees only camera input and the
+scorer alone holds the ground truth. `method` defaults to the classical
+baseline in perception.py; add a branch to `segment()` for another model.
 
-MODEL CHOICE IS STILL OPEN -- see the design requirements `method` defaults to the
-classical baseline in perception.py so the loop closes today. Point it at the
-MRT stack or an off-the-shelf model by adding a branch to `segment()`; the
-topic contract here does not change.
-
-RUN
----
     ros2 run mars_rig perception_node
     ros2 run mars_rig perception_node --ros-args \
         -p input_topic:=/unity/camera/image_raw     # the ceiling measurement
@@ -42,25 +34,18 @@ class PerceptionNode(Node):
         super().__init__("perception_node")
 
         self.declare_parameter("input_topic", "/world_model/image_raw")
-        # Raw by default, and both upstream publishers (x2_bridge and Unity's
-        # DualCapture) publish raw. Subscribing to <topic>/compressed when
-        # nothing publishes it connects to nothing and reports nothing, which
-        # is how you spend an hour on a blank pane.
+        # Raw by default: both upstream publishers (x2_bridge, Unity) publish raw.
         self.declare_parameter("use_compressed", False)
         self.declare_parameter("output_topic", "/perception/mask")
         self.declare_parameter("method", "baseline_cv")
         self.declare_parameter("output_encoding", "rgb8")
-        # An optional PNG copy. PNG, not JPEG: a class mask is flat colour and
-        # JPEG bleeds it across class boundaries. OFF by default -- the panel
-        # and web_video_server both read the raw mask topic, so this encodes a
-        # PNG per frame for a subscriber that does not exist, and publishing a
-        # second mask topic at all invites someone to point the scorer at it.
+        # Optional PNG copy (PNG, as JPEG bleeds class colours). Off by default:
+        # the panel and web_video_server read the raw mask topic.
         self.declare_parameter("publish_compressed", False)
         self.declare_parameter("palette_json", "")
         self.declare_parameter("scored_classes", list(DEFAULT_SCORED))
         self.declare_parameter("max_rate_hz", 12.0)
-        # baseline_cv knobs, exposed so they can be tuned against the ceiling
-        # measurement without editing code.
+        # baseline_cv tuning knobs.
         self.declare_parameter("horizon_frac", 0.25)
         self.declare_parameter("texture_thresh", 6.0)
         self.declare_parameter("shadow_offset", 22.0)
@@ -87,9 +72,7 @@ class PerceptionNode(Node):
         self._last = 0.0
         self._frames = 0
 
-        # RELIABLE out, BEST_EFFORT in -- see the QoS note in imgcodec.py.
-        # A best-effort image publisher never connects to rosbridge_server or
-        # web_video_server, and neither of them says so.
+        # RELIABLE out, BEST_EFFORT in (see the QoS note in imgcodec.py).
         pub_qos = image_pub_qos()
         sub_qos = image_sub_qos()
         out_topic = g("output_topic").value
@@ -101,10 +84,7 @@ class PerceptionNode(Node):
 
         topic = g("input_topic").value
         if bool(g("use_compressed").value):
-            # Append /compressed, the image_transport convention: a publisher
-            # of `topic` as CompressedImage advertises it on `topic/compressed`.
-            # Subscribing to the bare name would connect to nothing and report
-            # nothing, which is how you spend an hour on a blank pane.
+            # image_transport convention: compressed frames are on <topic>/compressed.
             topic = topic + "/compressed"
             self.create_subscription(
                 CompressedImage, topic, self._on_compressed, sub_qos)
@@ -112,8 +92,7 @@ class PerceptionNode(Node):
         else:
             self.create_subscription(Image, topic, self._on_image, sub_qos)
             topic_type = "sensor_msgs/msg/Image"
-        # An empty segmentation pane looks like a browser problem. It is
-        # usually this. See topicwatch.py.
+        # Warns if the input topic goes quiet (see topicwatch.py).
         self.watch = TopicWatchdog(self, topic, topic_type, "input")
 
         self.get_logger().info(
@@ -121,7 +100,7 @@ class PerceptionNode(Node):
             f"out={g('output_topic').value} classes={self.space.names}")
         if self.method == "baseline_cv":
             self.get_logger().warn(
-                "baseline_cv is the classical stand-in (the design requirements is "
+                "baseline_cv is the classical stand-in (model choice is "
                 "still open) -- results are a baseline, not the MRT stack")
 
     def _rate_limited(self) -> bool:
@@ -165,9 +144,7 @@ class PerceptionNode(Node):
         else:
             out = fill_msg(Image(), colourise(ids, self.space), "rgb8")
 
-        # The source frame's stamp, not now(): the scorer pairs this with the
-        # label frame it belongs to, and restamping here would pair it with
-        # whatever Unity happened to render while we were segmenting.
+        # Keep the source stamp so the scorer can pair this with its label frame.
         out.header = header
         self.pub.publish(out)
 
@@ -190,12 +167,8 @@ def main():
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
-        # ros2 launch sends SIGINT, rclpy's signal handler shuts the context
-        # down, and spin() then raises. Calling shutdown() again from here
-        # raises RCLError("rcl_shutdown already called") from inside the
-        # finally block, so the node exits 1 and launch prints
-        # "process has died" for a perfectly normal Ctrl-C. Real crashes then
-        # look exactly like a clean exit, which is the actual cost.
+        # rclpy's SIGINT handler already shut the context down; a second
+        # shutdown() would raise RCLError.
         pass
     finally:
         node.destroy_node()

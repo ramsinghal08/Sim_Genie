@@ -1,50 +1,26 @@
 #!/usr/bin/env python3
-"""
-prompt_director.py -- the automated prompt loop.
+"""prompt_director.py: the automated prompt loop (ROS wrapper).
 
-Reads the score, decides the next condition, publishes the prompt, records
-the result. Three modes; sweep is the one that produces your deliverable.
+Reads the score, picks the next condition, publishes the prompt, records results.
 
-    /score/iou           Float32   perception score from the scoring node
-    /world_model/state   String    JSON from the bridge (chunk number etc.)
+    /score/iou           Float32   score from the scoring node
+    /score/detail        String    per-class IoU JSON
          ->
     /world_model/prompt  String    prompt text for the bridge to send to X2
     /director/status     String    JSON, for the control panel UI
 
-MODES
------
-sweep      Walk every prompt in the escalation ladder, dwell on each, record
-           mean IoU. Deterministic, unattended, produces results.csv and
-           results.md. THIS IS WHAT GENERATES YOUR RESULTS TABLE.
+Modes:
+  sweep     walk every prompt in the escalation ladder; writes results.csv/md
+  adaptive  escalate while the score stays high, stop when the stack breaks
+  llm       adaptive, with a local Ollama model proposing conditions; falls
+            back to the catalog on error, timeout or banned word
 
-adaptive   Escalate while the score stays high, stop when the stack breaks.
-           This is the demo mode: it hunts for the failure point live.
-
-llm        Adaptive, but a local Ollama model composes novel conditions from
-           the catalog it has already tried. Falls back to the catalog on any
-           error, timeout, or banned word.
-
-RUN
----
     ros2 run mars_rig prompt_director --ros-args \
         -p mode:=sweep -p catalog:=/path/prompt_catalog_x2.json
 
-    ros2 run mars_rig prompt_director --ros-args -p mode:=adaptive
-    ros2 run mars_rig prompt_director --ros-args -p mode:=llm
-
-TIMING
-------
-X2 applies prompts at generation-chunk boundaries, so every condition needs a
-settle period before its scores mean anything. settle_sec is discarded,
-dwell_sec is measured. Do not shorten settle_sec to save time -- you will be
-scoring the previous condition.
-
-WHERE THE LOGIC LIVES
----------------------
-The phase machine, the escalation rules and the results writer are in
-director_core.py, which has no rclpy in it, so the sweep can be tested and
-dry-run without a graph (tools/offline_loop.py). This node is the ROS wiring
-around it and nothing else.
+Each condition needs a settle period (discarded) before the dwell (measured),
+as X2 applies prompts at chunk boundaries. The decision logic lives in
+director_core.py; this node is only the ROS wiring.
 """
 
 import json
@@ -69,11 +45,8 @@ class PromptDirector(Node):
         self.declare_parameter("dwell_sec", 25.0)
         self.declare_parameter("out_dir", "results")
         self.declare_parameter("escalate_above", 0.75)
-        # 0.50, not 0.25: mean IoU over {drivable, obstacle} cannot fall much
-        # below 0.45 while drivable stays trivially easy, so a 0.25 threshold
-        # could never fire on the most likely failure -- perception going
-        # obstacle-blind while still calling the ground ground. Adaptive would
-        # have walked the whole ladder and reported "never broke".
+        # Mean IoU over {drivable, obstacle} stays near 0.45 or above while
+        # drivable is easy, so a lower threshold would never fire.
         self.declare_parameter("break_below", 0.50)
         self.declare_parameter("ollama_url", "http://localhost:11434/api/chat")
         self.declare_parameter("ollama_model", "qwen2.5:3b-instruct")
@@ -111,7 +84,7 @@ class PromptDirector(Node):
         self.pub_status = self.create_publisher(
             String, "/director/status", 10)
         self.create_subscription(Float32, "/score/iou", self._on_score, 10)
-        # Reporting only -- escalation still runs off the mean on /score/iou.
+        # Reporting only; escalation uses /score/iou.
         self.create_subscription(String, "/score/detail", self._on_detail, 10)
 
         self.create_timer(0.5, self._tick)
@@ -123,13 +96,11 @@ class PromptDirector(Node):
     # ---------- core callbacks ----------
 
     def _emit_prompt(self, text, prompt):
-        """Forwarded verbatim. The bridge does not edit it either."""
+        """Forwarded verbatim."""
         self.pub_prompt.publish(String(data=text))
 
     def _log(self, level, msg):
-        # Via emit(), not getattr: rclpy keys its logging context on the call
-        # site and refuses a severity change under it, so one dynamic line for
-        # every severity raises on the first warning. See roslog.py.
+        # Via emit(): rclpy rejects varying severities from one call site.
         emit(self.get_logger(), level, msg)
 
     # ---------- ros ----------
@@ -156,12 +127,8 @@ def main():
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
-        # ros2 launch sends SIGINT, rclpy's signal handler shuts the context
-        # down, and spin() then raises. Calling shutdown() again from here
-        # raises RCLError("rcl_shutdown already called") from inside the
-        # finally block, so the node exits 1 and launch prints
-        # "process has died" for a perfectly normal Ctrl-C. Real crashes then
-        # look exactly like a clean exit, which is the actual cost.
+        # rclpy's SIGINT handler already shut the context down; a second
+        # shutdown() would raise RCLError.
         pass
     finally:
         node.destroy_node()

@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
-"""
-director_core.py -- the director's decision loop, with no rclpy in it.
+"""director_core.py: the director's decision loop, free of rclpy.
 
-prompt_director.py is a thin ROS wrapper over this file. The logic lives here
-so the sweep that produces our deliverable can be run and tested without a ROS
-graph, without Unity and without spending credits -- see tools/offline_loop.py
-and mars_rig/test/test_director_core.py.
+prompt_director.py is a thin ROS wrapper over this module, so the sweep can be
+run and tested without ROS, Unity or API credits (see tools/offline_loop.py).
 
-Behaviour is identical to the in-node version it was lifted from: same phase
-machine, same escalation rules, same results.csv and results.md.
-
-TIMING
-------
-X2 applies prompts at generation-chunk boundaries, so every condition needs a
-settle period before its scores mean anything. settle_sec is discarded,
-dwell_sec is measured. Do not shorten settle_sec to save time -- you will be
-scoring the previous condition.
-
-Time is passed in rather than read, so the caller decides whether that is the
-ROS clock, the wall clock, or a simulated one.
+Timing: X2 applies prompts at generation-chunk boundaries, so each condition
+needs a settle period (discarded) before the dwell period (measured). Time is
+passed in by the caller (ROS clock, wall clock or simulated).
 """
 
 from __future__ import annotations
@@ -62,8 +50,7 @@ class Catalog:
     def text_for(self, prompt: dict, lang: str) -> str:
         """The exact string that goes to X2.
 
-        Forwarded verbatim from here on. A single wrong word invalidates the
-        run, so nothing downstream edits this.
+        Forwarded verbatim; nothing downstream may edit it.
         """
         text = prompt.get(lang) or prompt["en"]
         if prompt.get("prefix"):
@@ -111,11 +98,8 @@ class DirectorCore:
         self.phase = "idle"          # idle | settle | dwell | done
         self.phase_start = 0.0
         self.samples: list[float] = []
-        # Per-class IoU, from /score/detail. Kept alongside the mean rather than
-        # instead of it: the mean is what drives escalation, but it cannot fall
-        # below about 0.45 while drivable stays easy, so a run where perception
-        # went completely obstacle-blind still reads as "degraded but working".
-        # The per-class column is what makes that visible in the table.
+        # Per-class IoU from /score/detail. The mean drives escalation but can
+        # hide an obstacle-blind run, so per-class values are reported too.
         self.detail_samples: dict[str, list[float]] = {}
         self.results: list[dict] = []
         self.tried: list[str] = []
@@ -134,9 +118,8 @@ class DirectorCore:
     def add_detail(self, payload) -> None:
         """A sample from /score/detail: {"per_class": {name: iou or null}}.
 
-        Accepts the dict or the raw JSON string, and ignores anything it cannot
-        read. This is reporting, not control -- a malformed detail message must
-        never be able to stop a run that is otherwise scoring fine.
+        Accepts a dict or raw JSON string and ignores anything unreadable:
+        this is reporting only and must never stop a run.
         """
         if self.phase != "dwell":
             return
@@ -148,7 +131,7 @@ class DirectorCore:
         if not isinstance(payload, dict):
             return
         for name, value in (payload.get("per_class") or {}).items():
-            if value is None:      # class absent from both images -- skipped
+            if value is None:      # class absent from both images
                 continue
             try:
                 self.detail_samples.setdefault(str(name), []).append(float(value))
@@ -237,9 +220,7 @@ class DirectorCore:
             "min_iou": round(lo, 4),
             "max_iou": round(hi, 4),
             "n_samples": len(self.samples),
-            # Explicit, because NaN spreads: every derived number below is NaN
-            # too, and a results table full of "nan" reads as a broken script
-            # rather than as "this run measured nothing".
+            # Explicit flag: NaN propagates into every derived number.
             "scored": bool(self.samples),
             "drop_vs_baseline_pct": round(drop, 1),
             "within_baseline_noise": self._within_noise(mean),
@@ -251,11 +232,8 @@ class DirectorCore:
         }
         self.results.append(row)
 
-        # Adaptive only escalates while the score is ABOVE escalate_above. If
-        # the very first condition already scores below it, the ladder never
-        # advances and the run sits on the baseline until something kills it --
-        # with no error, because nothing is broken, the rule just never fires.
-        # This is the trap that eats a demo slot, so say so on the first row.
+        # Adaptive only escalates above escalate_above; a baseline at or below
+        # it would stall silently, so warn on the first row.
         if (self.mode in ("adaptive", "llm") and len(self.results) == 1
                 and mean == mean and mean <= self.escalate_above):
             self.log("warn",
@@ -264,13 +242,9 @@ class DirectorCore:
                      f"[{self.current['id']}]. Lower escalate_above below the "
                      f"measured ceiling, or run mode:=sweep.")
 
-        # Spelled out because the sign reads backwards at a glance: `drop` is
-        # positive when the score FELL, so "+97%" is a near-total failure, not
-        # an improvement.
+        # `drop` is positive when the score fell.
         per_class = "  ".join(f"{k} {v:.3f}" for k, v in row["per_class"].items())
         if not row["scored"]:
-            # "IoU nan (drop +nan%)" is worse than useless: it looks like a
-            # formatting bug and hides the fact that nothing was measured.
             self.log("info", f"   {row['id']}: NO SCORE (n=0)")
         else:
             self.log("info",
@@ -280,18 +254,10 @@ class DirectorCore:
         self.write()
 
     def _within_noise(self, mean: float) -> bool:
-        """Is this condition's move smaller than the baseline's own wobble?
+        """True if the mean moved by less than the baseline's own min-max range.
 
-        The baseline is one condition scored over many frames, and those frames
-        are not equivalent: the rover is moving, so rock count, size and
-        distance change under it. That spread is the noise floor of the whole
-        experiment. A condition that moves the mean by less than it has not been
-        shown to do anything -- the same number would come out of rerunning the
-        baseline on a different stretch of the path.
-
-        Reported rather than hidden. Dropping these rows would be worse: a
-        condition that does nothing is a real result, and the honest way to say
-        it is "below our resolution", not to leave it out.
+        The rover moves during the baseline, so that spread is the experiment's
+        noise floor. Such rows are flagged rather than dropped.
         """
         if not self.results or mean != mean:      # baseline itself, or NaN
             return False
@@ -314,12 +280,7 @@ class DirectorCore:
     # ---------- output ----------
 
     def class_names(self) -> list[str]:
-        """Every class seen across the run, in a stable order.
-
-        The union rather than the first row's keys: a class absent from one
-        condition's frames is skipped by the scorer and simply does not appear
-        in that row, and a CSV whose columns change halfway down is not a CSV.
-        """
+        """Sorted union of classes seen in any row, for stable CSV columns."""
         names: set[str] = set()
         for r in self.results:
             names.update(r.get("per_class", {}))
@@ -327,11 +288,7 @@ class DirectorCore:
 
     @staticmethod
     def _num(value, spec: str = ".3f") -> str:
-        """Format a score, or an em dash if there is not one.
-
-        NaN means "not measured", and it must not be able to reach a table, a
-        headline or a claim looking like a number.
-        """
+        """Format a score, or "-" if it is NaN (not measured)."""
         try:
             if value != value:              # NaN
                 return "-"
@@ -352,13 +309,11 @@ class DirectorCore:
             w = csv.DictWriter(fh, fieldnames=cols)
             w.writeheader()
             for r in self.results:
-                # NaN in a CSV cell reads as a number that went wrong. An
-                # empty cell reads as "not measured", which is the truth.
+                # Empty cell, not NaN, for "not measured".
                 flat = {k: ("" if isinstance(r[k], float) and r[k] != r[k]
                             else r[k])
                         for k in scalar}
-                # Blank, not zero, for a class this condition never saw. Zero is
-                # a score; absence is not, and the two must not look alike.
+                # Blank, not zero, for a class this condition never saw.
                 for n in names:
                     flat[f"iou_{n}"] = r.get("per_class", {}).get(n, "")
                 flat["hypothesis"] = r["hypothesis"]
@@ -375,8 +330,7 @@ class DirectorCore:
             + " Range | Drop | n |",
             "|---|---|---|---|" + "---|" * len(names) + "---|---|---|",
         ]
-        # A run where nothing was scored is a real outcome, and it needs to be
-        # the first thing read -- not inferred from a column of em dashes.
+        # Surface an entirely unscored run at the top of the file.
         if not any(r.get("scored", True) for r in self.results):
             lines[1:1] = [
                 "",
@@ -395,8 +349,6 @@ class DirectorCore:
                 f" {self._num(r['per_class'][n])} |" if n in r.get("per_class", {})
                 else " - |"
                 for n in names)
-            # One dash, not "-–-" and "-%": an unscored row should read as
-            # empty at a glance, not as broken formatting.
             rng = (f"{self._num(r['min_iou'])}–{self._num(r['max_iou'])}"
                    if r.get("scored", True) else "-")
             drop = (f"{self._num(r['drop_vs_baseline_pct'], '+.1f')}%"
@@ -423,9 +375,7 @@ class DirectorCore:
                     f"that limit. Claiming a drop smaller than {band:.3f} needs a "
                     f"longer dwell, not a bolder sentence.")
 
-        # Every headline below compares scores. With none, min() picks an
-        # arbitrary row (NaN comparisons are all False) and the file states a
-        # "worst condition" that was never measured -- so it is skipped.
+        # Skip headlines when nothing was scored (min() over NaN is arbitrary).
         scored_rows = [r for r in self.results[1:] if r.get("scored", True)]
         if (len(self.results) > 1 and scored_rows
                 and self.results[0].get("scored", True)):
@@ -470,11 +420,7 @@ class DirectorCore:
             "elapsed": round(now - self.phase_start, 1),
             "completed": len(self.results),
             "total": len(self.ladder),
-            # NEVER NaN. `json.dumps` emits a bare `NaN`, which is not valid
-            # JSON: the panel's JSON.parse throws on it and the whole status
-            # message is dropped, so the director's table silently freezes on
-            # the last good value from the moment the first condition goes
-            # unscored. None round-trips, and the panel already renders it.
+            # Never NaN: json.dumps emits a bare NaN, which is invalid JSON.
             "last_iou": self._or_none(
                 self.results[-1]["mean_iou"] if self.results else None),
         }
@@ -488,9 +434,8 @@ class DirectorCore:
 class OllamaProposer:
     """Local LLM condition proposer, with the catalog as the fallback.
 
-    Any failure returns None and the caller falls back to the ladder. That is
-    deliberate: a run that silently continues on a malformed or off-policy
-    prompt produces numbers nobody can defend.
+    Any failure returns None and the caller falls back to the ladder, so a
+    malformed or off-policy prompt never reaches a run.
     """
 
     def __init__(self, catalog: Catalog, url: str, model: str,
@@ -530,8 +475,7 @@ class OllamaProposer:
             self.log("warn", f"LLM unavailable ({exc}); using catalog")
             return None
 
-        # Guard rails. A banned word silently invalidates every IoU number,
-        # so reject rather than repair.
+        # Reject rather than repair: a banned word invalidates the scores.
         low = zh.lower()
         for word in self.catalog.banned:
             if word.lower() in low:

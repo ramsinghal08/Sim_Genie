@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""
-fake_score_publisher.py -- a score with no pipeline behind it.
+"""fake_score_publisher.py: synthetic scores for exercising the director.
 
-For the design requirements test 4: run the director against this and confirm
-results.csv and results.md appear and populate, with no Unity, no X2, no
-perception and no API credits spent.
+Lets results.csv and results.md be checked with no Unity, X2, perception or
+API credits.
 
     ros2 run mars_rig fake_score_publisher --ros-args -p mode:=ramp
     ros2 run mars_rig prompt_director --ros-args \
         -p settle_sec:=2.0 -p dwell_sec:=3.0
 
-MODES
------
-ramp      linear descent from `start` to `end` over `duration_sec`
-steps     holds a level per condition, dropping each time the prompt changes --
-          the shape a real escalation ladder produces, so results.md looks like
-          a real run
-constant  a fixed value, for checking the plumbing alone
+Modes:
+  ramp      linear descent from `start` to `end` over `duration_sec`
+  steps     holds a level, dropping each time the prompt changes
+  constant  a fixed value
 
-This publishes on /score/iou, the same topic scoring_node uses. Never run both.
+Publishes on /score/iou like scoring_node; never run both.
 """
 
 import json
@@ -56,8 +51,7 @@ class FakeScorePublisher(Node):
         self.noise = float(g("noise").value)
         self.step_decay = float(g("step_decay").value)
 
-        # Seeded so a director run is reproducible -- two runs of the same test
-        # should differ because the director changed, not because the fake did.
+        # Seeded for reproducible runs.
         self.rng = random.Random(int(g("seed").value))
 
         self.level = self.start
@@ -107,12 +101,8 @@ def main():
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
-        # ros2 launch sends SIGINT, rclpy's signal handler shuts the context
-        # down, and spin() then raises. Calling shutdown() again from here
-        # raises RCLError("rcl_shutdown already called") from inside the
-        # finally block, so the node exits 1 and launch prints
-        # "process has died" for a perfectly normal Ctrl-C. Real crashes then
-        # look exactly like a clean exit, which is the actual cost.
+        # rclpy's SIGINT handler already shut the context down; a second
+        # shutdown() would raise RCLError.
         pass
     finally:
         node.destroy_node()

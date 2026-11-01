@@ -1,7 +1,6 @@
 """The director's phase machine and results writer, on a simulated clock.
 
-the design requirements -- but with no ROS and no waiting, so it runs
-in CI in milliseconds instead of the minutes the real run takes.
+No ROS and no waiting, so it runs in milliseconds.
 """
 
 import csv
@@ -42,13 +41,12 @@ def test_catalog_matches_the_spec(catalog):
     assert len(catalog.by_id) == 45
     assert len(catalog.ladder) == 23
     assert catalog.ladder[0] == "B00"          # baseline first, always
-    assert "rover" in catalog.banned           # the marker incident, section 3.5
+    assert "rover" in catalog.banned
     assert catalog.boundary_zh.startswith("只改变地面和天空")
 
 
 def test_prompt_text_is_forwarded_verbatim(catalog):
-    """A single wrong word invalidates the run (section 5.3), so nothing may
-    rewrite the catalog string on the way out."""
+    """Nothing may rewrite the catalog string on the way out."""
     p = catalog.by_id["B00"]
     assert catalog.text_for(p, "zh") == p["zh"]
     assert catalog.text_for(p, "en") == p["en"]
@@ -82,8 +80,7 @@ def test_sweep_walks_every_condition_and_writes_results(catalog, tmp_path):
 
 
 def test_settle_samples_are_discarded(catalog, tmp_path):
-    """Scores collected before the prompt lands belong to the PREVIOUS
-    condition. If settle did not discard them the first row would be a blend."""
+    """Scores collected during settle belong to the previous condition and are discarded."""
     core = DirectorCore(catalog, mode="sweep", settle_sec=4.0, dwell_sec=4.0,
                         out_dir=str(tmp_path))
     core.emit = lambda text, prompt: None
@@ -126,8 +123,7 @@ def test_adaptive_stops_once_the_stack_breaks(catalog, tmp_path):
 
 
 def test_adaptive_holds_position_while_the_score_is_middling(catalog, tmp_path):
-    """Between break_below and escalate_above the ladder does not advance --
-    the condition is doing something and is worth another dwell."""
+    """Between break_below and escalate_above the ladder does not advance."""
     core = DirectorCore(catalog, mode="adaptive", settle_sec=1.0, dwell_sec=2.0,
                         out_dir=str(tmp_path),
                         escalate_above=0.75, break_below=0.25)
@@ -146,10 +142,7 @@ def test_status_is_json_safe(catalog, tmp_path):
 
 
 def test_adaptive_warns_when_it_can_never_escalate(catalog, tmp_path):
-    """A baseline at or below escalate_above means the ladder never advances.
-    Nothing is broken, so nothing errors -- the run just sits on B00 until
-    someone kills it. The warning is the only thing standing between that and a
-    wasted demo slot."""
+    """A baseline at or below escalate_above stalls the ladder silently, so warn."""
     logs = []
     core = DirectorCore(catalog, mode="adaptive", settle_sec=1.0, dwell_sec=2.0,
                         out_dir=str(tmp_path), escalate_above=0.75,
@@ -171,9 +164,7 @@ def test_sweep_does_not_warn_about_escalation(catalog, tmp_path):
 
 
 def test_conditions_inside_the_baseline_range_are_marked(catalog, tmp_path):
-    """A condition that moves the score by less than the baseline's own
-    frame-to-frame spread has not been shown to do anything. Reporting it as a
-    drop is how a rig ends up claiming results it cannot support."""
+    """A move smaller than the baseline's own frame-to-frame spread is flagged."""
     core = DirectorCore(catalog, mode="sweep", settle_sec=1.0, dwell_sec=3.0,
                         out_dir=str(tmp_path))
 
@@ -213,9 +204,8 @@ def test_a_real_collapse_is_not_marked_as_noise(catalog, tmp_path):
 
 
 def test_per_class_iou_is_recorded_and_reported(catalog, tmp_path):
-    """The mean cannot express obstacle blindness -- drivable is trivially easy,
-    so it holds the mean up around 0.45 no matter how completely perception
-    stops seeing rocks. The per-class column is what makes that visible."""
+    """The mean hides obstacle blindness (drivable keeps it near 0.45); the
+    per-class column exposes it."""
     core = DirectorCore(catalog, mode="sweep", settle_sec=1.0, dwell_sec=3.0,
                         out_dir=str(tmp_path))
 
@@ -257,8 +247,7 @@ def test_detail_accepts_json_and_ignores_rubbish(catalog, tmp_path):
 
 
 def test_absent_class_leaves_a_blank_cell_not_a_zero(catalog, tmp_path):
-    """A class the scorer skipped has no IoU. Zero is a score; absence is not,
-    and a CSV must not make them look alike."""
+    """A skipped class has no IoU; the CSV must not show it as zero."""
     core = DirectorCore(catalog, mode="sweep", settle_sec=0.0, dwell_sec=2.0,
                         out_dir=str(tmp_path))
     seen = {"n": 0}
@@ -281,13 +270,7 @@ def test_absent_class_leaves_a_blank_cell_not_a_zero(catalog, tmp_path):
 
 
 def test_an_unscored_run_says_so_instead_of_reporting_nan(catalog, tmp_path):
-    """A run that measured nothing must not look like a run that measured NaN.
-
-    This is the shape of a real evening: the camera topic was wrong, no ground
-    truth existed, /score/iou never published, and the report came out as a
-    table of `nan` with a "worst condition" picked arbitrarily -- NaN compares
-    False against everything, so `min()` returns whatever came first.
-    """
+    """A run that scored nothing must say so, not report NaN or an arbitrary worst condition."""
     core = DirectorCore(catalog, mode="sweep", settle_sec=1.0, dwell_sec=2.0,
                         out_dir=str(tmp_path), log=lambda lvl, msg: None)
     drive(core, lambda cid: None, limit=200)

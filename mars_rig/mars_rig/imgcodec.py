@@ -1,40 +1,21 @@
 #!/usr/bin/env python3
-"""
-imgcodec.py -- sensor_msgs/Image <-> numpy, without cv_bridge. Pure numpy.
+"""imgcodec.py: sensor_msgs/Image <-> numpy without cv_bridge (pure numpy).
 
-WHY NOT cv_bridge
------------------
-cv_bridge answers "what OpenCV type is rgb8?" from its COMPILED module, built
-against the OpenCV that ROS ships, and then looks that answer up in a table it
-builds at runtime from whatever `import cv2` happens to give it. When those two
-are different OpenCV versions, the lookup misses and it raises deep inside a
-publish call:
+cv_bridge resolves OpenCV type codes from a compiled module but looks them up
+in a table built from whatever `cv2` is imported at runtime. With mismatched
+OpenCV versions (e.g. a pip OpenCV 5 over ROS's OpenCV 4) this raises
+KeyError mid-publish, so 8-bit images are converted here instead.
 
-    KeyError: 16
-
-OpenCV 5 renumbered the type constants -- CV_8UC3 is 64 there and 16 in
-OpenCV 4 -- so a pip-installed OpenCV 5 shadowing ROS's OpenCV 4 is enough to
-take the bridge down mid-run. Nothing in the traceback says "you have two
-OpenCVs", and `pip install ultralytics` is enough to cause it, which is a
-plausible thing for someone to do here while deciding the design requirements
-
-We move 8-bit images in four encodings. That is a handful of numpy reshapes,
-and doing it here means no version of anything can produce that failure again.
-
-WHAT IT HANDLES
----------------
-rgb8, bgr8, rgba8, bgra8, mono8, and the 8UC1/8UC3/8UC4 aliases. Row padding
-(`step` larger than width * channels) is respected. 8-bit only: nothing in this
-rig moves 16-bit or float images, and quietly half-supporting them would be
-worse than refusing.
+Handles rgb8, bgr8, rgba8, bgra8, mono8 and the 8UC1/8UC3/8UC4 aliases, with
+row padding (`step` > width * channels). 8-bit only; other depths are refused.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-#: encoding -> channel count. The 8UCn aliases carry no colour order, so they
-#: are taken at face value and never reordered.
+#: encoding -> channel count. The 8UCn aliases carry no colour order and are
+#: never reordered.
 CHANNELS = {
     "mono8": 1, "8UC1": 1,
     "rgb8": 3, "bgr8": 3, "8UC3": 3,
@@ -45,7 +26,7 @@ _BGR_ORDER = {"bgr8", "bgra8"}
 
 
 class UnsupportedEncoding(ValueError):
-    """Raised rather than guessed. A wrong guess here is silent garbage."""
+    """Raised for encodings this module will not guess at."""
 
 
 def channels_of(encoding: str) -> int:
@@ -77,10 +58,7 @@ def decode(data, height: int, width: int, step: int, encoding: str) -> np.ndarra
             f"payload is {buf.size} bytes, need {step * height} for "
             f"{width}x{height} {encoding}")
 
-    # Slice the padding off each row rather than assuming it is absent: a
-    # publisher that aligns rows produces a step larger than width*channels,
-    # and reshaping straight to (h, w, c) would shear the image diagonally
-    # instead of failing.
+    # Strip per-row padding; reshaping directly would shear the image.
     out = buf[:step * height].reshape(height, step)[:, :row]
     return out.reshape(height, width, c) if c > 1 else out.reshape(height, width)
 
@@ -100,10 +78,8 @@ def as_rgb(array: np.ndarray, encoding: str) -> np.ndarray:
 def as_single_channel(array: np.ndarray, encoding: str) -> np.ndarray:
     """Whatever came in -> (h, w) uint8.
 
-    For a colour image this takes the FIRST channel, not a luminance mix: the
-    only colour images asked for this are class-id maps that were widened to
-    three identical channels, and averaging them would turn an id of 2 into
-    something that is not an id at all.
+    A colour image yields its first channel, not a luminance mix: callers pass
+    class-id maps widened to three identical channels.
     """
     if array.ndim == 2:
         return array
@@ -136,9 +112,7 @@ def encode(array: np.ndarray, encoding: str) -> tuple[bytes, int]:
 
 # ---------------------------------------------------------------- messages
 #
-# Duck-typed on the fields, so this file still imports with no ROS present and
-# stays testable against a plain object. sensor_msgs/Image is just five fields
-# and a payload; nothing here needs the class itself.
+# Duck-typed on the message fields so this module imports without ROS.
 
 def msg_to_array(msg) -> np.ndarray:
     """Image message -> array in its own channel order."""
@@ -168,12 +142,7 @@ def fill_msg(msg, array: np.ndarray, encoding: str):
 
 
 def compressed_to_rgb(msg) -> np.ndarray:
-    """CompressedImage -> contiguous (h, w, 3) RGB, via OpenCV's own decoder.
-
-    Safe across OpenCV versions in a way cv_bridge is not: imencode/imdecode
-    are pure cv2, so whichever cv2 is imported is self-consistent. The version
-    trap is only in cv_bridge's compiled-vs-runtime type table.
-    """
+    """CompressedImage -> contiguous (h, w, 3) RGB via cv2.imdecode."""
     import cv2
     buf = np.frombuffer(msg.data, dtype=np.uint8)
     bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
@@ -185,23 +154,13 @@ def compressed_to_rgb(msg) -> np.ndarray:
 
 # ------------------------------------------------------------------- QoS
 #
-# Kept here because every node that touches an image needs the same two
-# profiles, and getting them the wrong way round is invisible.
-#
-# THE TRAP: a BEST_EFFORT publisher and a RELIABLE subscriber are INCOMPATIBLE
-# in ROS 2 -- the subscriber demands a guarantee the publisher does not offer,
-# so the two never connect. rclpy logs nothing at default severity, `ros2 topic
-# hz` on the publisher still reports 24, and the panel shows an empty box.
-#
-# rosbridge_server and web_video_server both subscribe RELIABLE by default and
-# neither exposes a QoS override worth relying on. So every image publisher
-# here offers RELIABLE (a publisher may always offer more than a subscriber
-# asks for) and every image subscriber requests BEST_EFFORT. That pair
-# connects to everything, in both directions, including sensor-data publishers
-# like the Unity endpoint.
+# A BEST_EFFORT publisher and a RELIABLE subscriber never connect in ROS 2,
+# silently. rosbridge_server and web_video_server subscribe RELIABLE, so image
+# publishers here offer RELIABLE and image subscribers request BEST_EFFORT,
+# which connects to any peer, including sensor-data publishers.
 
 def image_pub_qos(depth: int = 2):
-    """RELIABLE, shallow, VOLATILE -- readable by any subscriber."""
+    """RELIABLE, shallow, VOLATILE: readable by any subscriber."""
     from rclpy.qos import (
         DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
     )
@@ -214,7 +173,7 @@ def image_pub_qos(depth: int = 2):
 
 
 def image_sub_qos(depth: int = 2):
-    """BEST_EFFORT, shallow -- accepts frames from any publisher."""
+    """BEST_EFFORT, shallow: accepts frames from any publisher."""
     from rclpy.qos import (
         DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
     )
