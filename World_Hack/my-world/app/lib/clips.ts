@@ -4,8 +4,7 @@ export interface PresetClip {
   src: string;
 }
 
-// Demo source videos - generated originals, no third-party footage (see
-// public/clips/CREDITS.md). Each pairs with a demo prompt chip: ball +
+// Demo source videos. Each pairs with a demo prompt chip: ball +
 // "swap object for character", dog + "replace with reference", and figure +
 // "follow the drag" (steer the figure with the pointer instead of a
 // reference image).
