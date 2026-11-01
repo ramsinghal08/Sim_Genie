@@ -4,22 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MjpegSource } from "@/app/lib/ros/mjpeg.js";
 import { Button, Panel, cn, FOCUS_RING } from "./ui";
 
-// An MJPEG stream -> the `source` track.
-//
-// Same contract as WebcamSource: this only PRODUCES a MediaStreamTrack and
-// hands it up. useSourcePublisher stays the single owner of the `source` slot,
-// so switching modes cannot race two publishers.
-//
-// web_video_server turns any ROS image topic into MJPEG, so this needs no ROS
-// client at all -- no rosbridge, no websocket, no topic list. Paste the URL of
-// any stream listed at http://localhost:8080 and it becomes the model's input.
-//
-// THE URL IS REWRITTEN THROUGH /api/wvs ON PURPOSE. The frames land in a
-// <canvas> whose captureStream() feeds WebRTC, and a canvas that drew
-// cross-origin pixels is tainted -- a tainted canvas cannot be captured, which
-// would break the one thing this component exists to do. Going through the
-// app's own origin sidesteps it without depending on web_video_server's CORS
-// headers.
+// MJPEG stream -> the `source` track. Only produces a MediaStreamTrack and
+// hands it up (see useSourcePublisher). The URL is rewritten through /api/wvs
+// so frames are same-origin: a canvas with cross-origin pixels is tainted and
+// cannot be captured.
 
 const DEFAULT_URL =
   "http://localhost:8080/stream?topic=/unity/camera/image_raw" +
@@ -68,9 +56,7 @@ export function StreamSource({
   const start = useCallback(() => {
     stop();
     const src = new MjpegSource(throughProxy(url), { fps: 24 });
-    // The model wants a stable resolution; browsers otherwise ramp resolution
-    // at stream start and on bandwidth dips. "detail" holds it and trades
-    // framerate instead.
+    // "detail" keeps resolution stable (trades framerate under bandwidth dips).
     const track = src.start();
     track.contentHint = "detail";
 
@@ -81,16 +67,15 @@ export function StreamSource({
         frames: src.frames,
         size: src.canvas.width > 16 ? `${src.canvas.width}×${src.canvas.height}` : "",
       });
-    // Bytes tick far faster than anything worth re-rendering for; frames are
-    // the interesting event, and progress is sampled for the byte counter.
     src.onFrame = sync;
+    // Before the first frame, show bytes moving.
     src.onProgress = () => {
-      if (src.frames === 0) sync();      // so a stream with no decodable part
-    };                                    // still shows bytes moving
+      if (src.frames === 0) sync();
+    };
     src.onError = setError;
     srcRef.current = src;
 
-    // Show the frames actually being published: this canvas IS the track.
+    // Preview the published canvas.
     if (holderRef.current) {
       holderRef.current.replaceChildren(src.canvas);
       src.canvas.className = "aspect-video w-full object-contain";
@@ -98,8 +83,7 @@ export function StreamSource({
     onTrack(track);
   }, [url, onTrack, stop]);
 
-  // Unmount must free the slot, or a mode switch leaves a dead canvas track
-  // published and the model keeps editing a frozen frame.
+  // Free the slot on unmount.
   useEffect(() => () => stop(), [stop]);
 
   const running = !!srcRef.current;
@@ -140,8 +124,6 @@ export function StreamSource({
           className="overflow-hidden rounded-md border border-zinc-800 bg-black"
         />
 
-        {/* Everything the stream knows about itself. "No frames" used to be
-            the only thing this could say, for four different causes. */}
         <p className="font-mono text-xs text-zinc-500">
           {!running
             ? "stopped"

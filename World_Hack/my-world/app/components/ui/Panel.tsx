@@ -10,8 +10,7 @@ interface PanelProps {
   children: ReactNode;
 }
 
-/** The one sidebar-card chrome. Bakes in p-3; callers needing other padding
- *  (SetupRequired, the clip modal) compose PANEL directly instead. */
+/** Sidebar card with p-3 padding; compose PANEL directly for other padding. */
 export function Panel({ label, action, className, children }: PanelProps) {
   return (
     <div className={cn(PANEL, "p-3", className)}>

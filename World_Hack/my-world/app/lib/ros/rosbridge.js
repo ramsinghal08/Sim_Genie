@@ -1,25 +1,9 @@
 /**
- * rosbridge.js -- the rosbridge v2 JSON protocol, just the parts this needs.
+ * Minimal rosbridge v2 JSON protocol client plus raw sensor_msgs/Image
+ * encode/decode helpers. No dependencies or build step.
  *
- * No dependencies, no framework, no build step. Import it from a Next page, a
- * plain <script type="module">, or a test harness; it only touches WebSocket
- * and the DOM types it is handed.
- *
- * WHY THIS EXISTS AT ALL
- * ----------------------
- * The Reactor SDK is a browser SDK: it authenticates with a JWT minted
- * server-side and moves video over WebRTC. The rig is ROS 2. rosbridge is the
- * one place those two meet without a native module -- so the browser becomes
- * the bridge, and x2_bridge_node.py is bypassed on the live path.
- *
- * Everything downstream (perception, scoring, director, the control panel) is
- * unchanged, because all of it only ever spoke ROS topics.
- *
- * IMAGE ENCODING
- * --------------
- * rosbridge sends uint8[] as base64 by default and accepts it the same way.
- * Raw sensor_msgs/Image only -- no CompressedImage anywhere in this rig, and a
- * `<topic>/compressed` that nothing publishes is the quietest failure there is.
+ * Images are raw sensor_msgs/Image only (no CompressedImage); rosbridge sends
+ * uint8[] as base64.
  */
 
 const CHANNELS = {
@@ -33,7 +17,7 @@ export class Rosbridge {
   constructor(url = "ws://localhost:9090") {
     this.url = url;
     this.ws = null;
-    this.handlers = new Map();      // topic -> fn(msg)
+    this.handlers = new Map(); // topic -> fn(msg)
     this.advertised = new Set();
     /** @type {(status: string) => void} */
     this.onStatus = () => {};
@@ -44,8 +28,6 @@ export class Rosbridge {
       const ws = new WebSocket(this.url);
       this.ws = ws;
       ws.onopen = () => { this.onStatus("connected"); resolve(this); };
-      // A socket error here is almost always "rosbridge is not running", which
-      // is worth saying plainly rather than as an event object.
       ws.onerror = () => {
         this.onStatus("cannot reach rosbridge at " + this.url);
         reject(new Error("cannot reach rosbridge at " + this.url));
@@ -99,7 +81,7 @@ export class Rosbridge {
   }
 }
 
-// ------------------------------------------------------------ image decode
+// image decode
 
 /** rosbridge uint8[] -> Uint8Array. Base64 normally; some builds send an array. */
 export function bytesOf(data) {
@@ -111,13 +93,9 @@ export function bytesOf(data) {
 }
 
 /**
- * sensor_msgs/Image -> ImageData, honouring encoding and row padding.
- *
- * `step` is bytes per ROW and may exceed width*channels when the publisher
- * aligns rows. Assuming it away shears the image diagonally rather than
- * failing, which is the kind of bug that gets blamed on the camera.
- *
- * Returns null rather than guessing on an encoding this rig does not move.
+ * sensor_msgs/Image -> ImageData, honouring encoding and row padding
+ * (`step` may exceed width*channels). Returns null for unsupported encodings
+ * or truncated data.
  */
 export function imageToImageData(msg, ctx) {
   const w = msg.width | 0, h = msg.height | 0;
@@ -149,16 +127,11 @@ export function imageToImageData(msg, ctx) {
   return out;
 }
 
-// ------------------------------------------------------------ image encode
+// image encode
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/** Uint8Array -> base64, without a round trip through a binary string.
- *
- * btoa(String.fromCharCode(...bytes)) blows the argument limit on anything
- * bigger than a thumbnail, and building the string with a loop is slower than
- * this for a full frame at video rate.
- */
+/** Uint8Array -> base64 (avoids the argument limit of String.fromCharCode(...bytes)). */
 export function base64Of(bytes) {
   let out = "";
   const n = bytes.length;
@@ -180,15 +153,8 @@ export function base64Of(bytes) {
 }
 
 /**
- * ImageData -> sensor_msgs/Image (rgb8), ready for rosbridge.
- *
- * The alpha channel is dropped: rgb8 is what every subscriber in this rig
- * reads, and a 4-channel payload described as rgb8 would be decoded as
- * garbage with no error anywhere.
- *
- * `stamp` should come from the SOURCE frame, not from now(): the scorer pairs
- * the prediction with the label frame it belongs to, and a fresh stamp here
- * pairs it with whatever Unity rendered while the model was thinking.
+ * ImageData -> sensor_msgs/Image (rgb8) for rosbridge. Alpha is dropped so the
+ * payload matches the declared encoding. `stamp` is a ROS Time ({sec, nanosec}).
  */
 export function imageDataToMsg(img, frameId = "x2_cam", stamp = null) {
   const { width, height, data } = img;

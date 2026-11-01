@@ -4,30 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import { useX2 } from "@reactor-models/x2";
 import { errorMessage } from "./ui";
 
-// The single owner of the `source` slot. Every input mode (webcam, video,
-// image) only *produces* a MediaStreamTrack and hands it here; this hook is
-// the only code that calls publish/unpublish on `source`, so mode switches
-// can never race two publishers against the same transceiver.
-//
-// Reconciliation is serialized: one loop at a time compares the desired
-// track (latest from the producer) with the published one and converges.
-// Switching tracks does NOT unpublish first - the SDK's publishTrack sends
-// the `publish_track` control request and then replaceTrack()s the new
-// media onto the existing RTCRtpSender without renegotiating, so a direct
-// re-publish is the safe path. Unpublish only happens when the producer
-// goes away entirely (no track) or on unmount.
+// Single owner of the `source` slot: input modes only produce a
+// MediaStreamTrack and hand it here, so mode switches cannot race two
+// publishers. Reconciliation is serialized in one loop. Switching tracks
+// re-publishes directly (the SDK replaces the track on the existing sender
+// without renegotiating); unpublish happens only when the producer goes away
+// or on unmount.
 export function useSourcePublisher(
   track: MediaStreamTrack | null,
 ): string | null {
   const { publish, unpublish, status } = useX2();
   const [error, setError] = useState<string | null>(null);
 
-  // What the producer currently wants on the wire.
+  // Track the producer currently wants published.
   const desiredRef = useRef<MediaStreamTrack | null>(null);
-  // What this hook believes is on the wire. Cleared when the transport
-  // goes away (status leaves "ready") so the next ready re-publishes.
+  // Track believed to be published; cleared when status leaves "ready".
   const publishedRef = useRef<MediaStreamTrack | null>(null);
-  // True while a reconcile loop is in flight - guarantees a single writer.
+  // True while a reconcile loop is running (single writer).
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -42,9 +35,7 @@ export function useSourcePublisher(
       if (busyRef.current) return;
       busyRef.current = true;
       try {
-        // Converge on the latest desired track. The loop re-reads
-        // desiredRef each pass, so a switch that lands mid-publish is
-        // picked up by the same loop instead of spawning a second one.
+        // Re-reads desiredRef each pass so mid-publish switches are picked up.
         while (
           mountedRef.current &&
           desiredRef.current !== publishedRef.current
@@ -59,8 +50,7 @@ export function useSourcePublisher(
             publishedRef.current = want;
             setError(null);
           } catch (e) {
-            // Leave publishedRef as-is and stop; the next track/status
-            // change retries. Never spin on a failing transport.
+            // Stop; the next track/status change retries.
             setError(errorMessage(e));
             break;
           }
@@ -72,10 +62,9 @@ export function useSourcePublisher(
     void reconcile();
   }, [track, status, publish, unpublish]);
 
-  // Mount flag for the reconcile loop. Mount-once on purpose: tying this to
-  // any dep (e.g. `unpublish`, whose identity changes when the provider
-  // recreates its store on auth arrival) would flip it to false mid-session
-  // and permanently kill publishing.
+  // Mount flag for the reconcile loop. Deliberately mount-once: depending on
+  // `unpublish` (identity changes when the store is recreated) would stop
+  // publishing mid-session.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -83,9 +72,7 @@ export function useSourcePublisher(
     };
   }, []);
 
-  // Free the slot if this hook owns it - on unmount, and when the store is
-  // torn down and rebuilt (new `unpublish` identity means the old transport
-  // this hook published on is going away).
+  // Free the slot on unmount or when the store is rebuilt.
   useEffect(
     () => () => {
       if (publishedRef.current) {

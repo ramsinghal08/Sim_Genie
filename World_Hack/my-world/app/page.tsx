@@ -1,19 +1,9 @@
 import { X2App } from "./X2App";
 import { SetupRequired } from "./SetupRequired";
 
-// The page is a Server Component. Its only job is to check whether
-// the app is configured (REACTOR_API_KEY is present) and render the
-// right tree:
-//   - missing key  -> friendly <SetupRequired /> landing
-//   - present      -> <X2App />, which fetches the JWT itself
-//
-// We don't mint the token here. Token minting lives behind
-// /api/reactor/token so the same client-side flow works whether the
-// frontend is Next.js, Vite, CRA, or anything else; the route is
-// the framework-agnostic contract.
-//
-// `dynamic = "force-dynamic"` skips static prerendering so the env
-// check runs per-request.
+// Server Component: renders the setup screen when REACTOR_API_KEY is missing,
+// otherwise the app (which fetches its JWT from /api/reactor/token).
+// force-dynamic runs the env check per request.
 export const dynamic = "force-dynamic";
 
 export default function Page() {

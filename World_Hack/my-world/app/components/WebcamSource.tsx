@@ -3,17 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, errorMessage } from "./ui";
 
-// Webcam -> a `source` track. This component only *produces* the track (and
-// a small self-view in the Source panel); useSourcePublisher - the single
-// owner of the `source` slot - publishes it. It never calls
-// publish/unpublish itself, so switching to/from webcam mode can't race
-// another producer on the same slot. It stays mounted across the start
-// transition, so the camera keeps streaming while generation runs.
-//
-// We own the MediaStreamTrack so we can set contentHint = "detail": the
-// model needs a stable resolution, but browsers ramp resolution at stream
-// start and on bandwidth dips. "detail" holds it steady and trades
-// framerate instead.
+// Webcam -> `source` track, with a small self-view. Only produces the track;
+// useSourcePublisher publishes it. Stays mounted while generating so the
+// camera keeps streaming. contentHint = "detail" keeps resolution stable
+// (trades framerate under bandwidth dips).
 export function WebcamSource({
   onTrack,
 }: {
@@ -25,7 +18,7 @@ export function WebcamSource({
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
-  // Acquire the camera; re-acquire when retryKey increments.
+  // Acquire the camera; retryKey re-acquires.
   useEffect(() => {
     let cancelled = false;
     let stream: MediaStream | null = null;
@@ -56,7 +49,7 @@ export function WebcamSource({
         return;
       }
       const videoTrack = stream.getVideoTracks()[0];
-      videoTrack.contentHint = "detail"; // hold resolution; adapt framerate
+      videoTrack.contentHint = "detail";
       if (videoRef.current) videoRef.current.srcObject = stream;
       setTrack(videoTrack);
       onTrack(videoTrack);
@@ -71,7 +64,6 @@ export function WebcamSource({
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-hidden rounded-md border border-zinc-800 bg-black">
-        {/* Local self-view (muted preview of the published camera) */}
         <video
           ref={videoRef}
           autoPlay

@@ -5,11 +5,9 @@ import { useX2 } from "@reactor-models/x2";
 import { PROMPT_EXAMPLES } from "@/app/lib/examples";
 import { Button, Panel, cn, EYEBROW, FOCUS_RING } from "./ui";
 
-// Prompt draft + preset chips + the active-prompt readout. Setting a prompt
-// is what arms generation: X2 starts on its own once a non-empty prompt is
-// set and source frames are arriving. Mid-stream re-prompts apply from the
-// next generated block. The parent keys this component on the reset nonce,
-// so a model reset (generation_stopped) remounts it and clears the draft.
+// Prompt draft, preset chips and active-prompt readout. Setting a prompt arms
+// generation; re-prompts apply from the next block. The parent keys this on the
+// reset nonce so a reset clears the draft.
 export function Prompt({ activePrompt }: { activePrompt: string | null }) {
   const { setPrompt, status } = useX2();
   const [text, setText] = useState("");

@@ -4,10 +4,8 @@ import { useRef, useState } from "react";
 import { PRESET_IMAGES, type PresetImage } from "@/app/lib/clips";
 import { cn, EYEBROW, FOCUS_RING } from "./ui";
 
-// Setup-phase picker for the "image" input source. Picking a preset or a
-// local file hands a displayable URL up to the workspace; the stage's input
-// pane then streams it as a constant 24 fps feed into the `source` track
-// (see ImageSource) so the drag pointer can animate it.
+// Picker for the "image" source: a preset or local file hands a URL up, and
+// the stage streams it (see ImageSource).
 export function ImagePicker({
   onSelect,
 }: {
@@ -21,7 +19,7 @@ export function ImagePicker({
     if (!file) return;
     setName(file.name);
     onSelect(URL.createObjectURL(file), file.name);
-    // Clear the native value so re-picking the same file fires onChange.
+    // Allow re-picking the same file.
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -47,7 +45,6 @@ export function ImagePicker({
               FOCUS_RING,
             )}
           >
-            {/* Plain <img>: tiny demo thumbnails, no next/image pipeline needed. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={preset.src}

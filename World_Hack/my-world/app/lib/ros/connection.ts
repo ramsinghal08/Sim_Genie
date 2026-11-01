@@ -1,14 +1,8 @@
 "use client";
 
-// One rosbridge socket for the whole page.
-//
-// Three things need it -- the camera source, the output sink and the prompt
-// forwarder -- and they mount independently. A connection per consumer would
-// mean three sockets, three reconnects and three chances to be half-connected;
-// a module-level singleton is the honest shape for "this page IS the bridge".
-//
-// Status is a tiny pub/sub rather than context so the ROS pieces can be
-// dropped into the scaffolded app without rewiring its provider tree.
+// Single shared rosbridge socket, since the camera source, output sink and
+// prompt forwarder mount independently. Status is a small pub/sub rather than
+// context so these pieces need no provider wiring.
 
 import { Rosbridge } from "./rosbridge.js";
 
@@ -38,8 +32,7 @@ export function subscribeStatus(fn: (s: RosStatus) => void): () => void {
   return () => listeners.delete(fn);
 }
 
-/** The live connection, or null. Consumers must tolerate null: they mount
- *  before anyone has connected, and stay mounted after a disconnect. */
+/** The live connection, or null (consumers mount before connecting). */
 export function getRos(): Rosbridge | null {
   return conn && conn.ready ? conn : null;
 }
@@ -57,8 +50,7 @@ export async function connectRos(url: string): Promise<void> {
     return;
   }
   conn = next;
-  // A socket that closes later must not leave the UI claiming "connected" --
-  // that is the state where every pane looks fine and nothing is flowing.
+  // Reflect later socket closes in the status.
   next.onStatus = (s: string) => {
     if (s === "disconnected") {
       if (conn === next) conn = null;

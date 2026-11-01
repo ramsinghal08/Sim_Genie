@@ -1,21 +1,12 @@
-// The input source the client streams into the model. All three publish to
-// the `source` track - "webcam" sends the live webcam, "video" plays a chosen
-// clip and streams its frames in, and "image" repeats a still image as a
-// constant 24 fps stream (the drag-to-animate setup from the model's demos:
-// the picture stays put until the pointer steers the subject). The model
-// edits whatever arrives on `source`; the app never uploads source media,
-// it streams it. "stream" pulls an MJPEG stream in over HTTP (see
-// components/StreamSource) -- web_video_server turns any ROS image topic into
-// one, so the model edits exactly the frames Unity is publishing, with no ROS
-// client in the browser at all.
+// Input source streamed into the `source` track: "webcam", "video" (a chosen
+// clip), "image" (a still repeated as a constant 24 fps feed for
+// drag-to-animate), or "stream" (MJPEG over HTTP from web_video_server, see
+// components/StreamSource).
 export type X2SourceMode = "webcam" | "video" | "image" | "stream";
 
-// The UI's projection of the model's session, reduced from the `state_update`
-// snapshot the model broadcasts on connect and after every observable state
-// change - the model is the source of truth. `referenceAccepted` (the decoded
-// image's dimensions) is the one field carried from a discrete ack message
-// (`reference_image_accepted`), since the snapshot only says whether a
-// reference is set.
+// UI projection of the model session, reduced from the `state_update`
+// snapshot. `referenceAccepted` comes from the discrete
+// `reference_image_accepted` ack instead.
 export interface X2UiState {
   /** Whether a generation run is currently producing `main_video` frames. */
   generating: boolean;
@@ -42,11 +33,9 @@ export const DEFAULT_UI_STATE: X2UiState = {
   referenceAccepted: null,
 };
 
-// The drag pointer, echoed by the model in every `state_update`. Deliberately
-// kept out of X2UiState: it changes ~30 Hz while a drag is in flight, so
-// folding it into the shared snapshot would defeat reduce()'s bail-out and
-// re-render the whole workspace every frame. Only the Pointer readout reads
-// it, and it subscribes to the stream on its own (see PointerPanel).
+// Drag pointer echoed in every `state_update`. Kept out of X2UiState because it
+// changes ~30 Hz and would re-render the whole workspace; PointerPanel
+// subscribes to it separately.
 export interface X2PointerReadout {
   /** Drag-pointer position, normalized to the output frame (0..1). */
   x: number;
@@ -56,7 +45,6 @@ export interface X2PointerReadout {
 }
 
 export const DEFAULT_POINTER_READOUT: X2PointerReadout = {
-  // The model's documented defaults: centered, not pressed.
   x: 0.5,
   y: 0.5,
   active: false,

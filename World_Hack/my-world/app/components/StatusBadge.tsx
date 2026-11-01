@@ -3,11 +3,7 @@
 import { useX2 } from "@reactor-models/x2";
 import { Button, Panel, cn } from "./ui";
 
-// The status badge teaches the four-state connection machine:
-//   disconnected -> connecting -> waiting -> ready
-//
-// We surface every state visibly. Beginners learning the SDK should
-// *see* the transitions, not have them hidden behind a spinner.
+// Connection states: disconnected -> connecting -> waiting -> ready.
 const TONE: Record<string, { dot: string; label: string }> = {
   disconnected: { dot: "bg-zinc-500", label: "Disconnected" },
   connecting: { dot: "bg-blue-500 animate-pulse", label: "Connecting…" },

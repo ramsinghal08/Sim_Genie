@@ -6,16 +6,9 @@ import { ImageSource } from "./ImageSource";
 import { PointerOverlay } from "./PointerOverlay";
 import { VideoSource } from "./VideoSource";
 
-// The stage.
-//   - webcam mode: a single pane of the model's edited output (the webcam
-//     self-view lives in the Source panel).
-//   - video / image mode: side by side - the media you're streaming in on
-//     the left, the edited output on the right. The left pane owns the
-//     published `source` track (a playing clip, or a still image repeated
-//     at 24 fps), so it is literally the frames the model edits.
-//
-// The edited pane carries the drag overlay: press and drag on the output to
-// steer the subject's motion (set_pointer, normalized to the output frame).
+// Webcam mode shows only the edited output. Video/image modes show the source
+// (which owns the published `source` track) beside the edited output, which
+// carries the drag-to-steer overlay.
 export function Stage({
   ui,
   mode,
@@ -28,8 +21,7 @@ export function Stage({
   mode: X2SourceMode;
   videoUrl: string | null;
   imageUrl: string | null;
-  // After a reset the WebRTC <video> would freeze on the last received frame
-  // (the model emits nothing new) - cover it until generation runs again.
+  // Covers the frozen last frame until generation runs again.
   cleared: boolean;
   onTrack: (track: MediaStreamTrack | null) => void;
 }) {
